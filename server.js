@@ -1,37 +1,68 @@
+// jobspeak-backend/server.js
+import dotenv from "dotenv";
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
+
+import aiRoutes from "./routes/ai.js";
+import authRoutes from "./routes/auth.js";
+import resumeRoutes from "./routes/resume.js";
+import stripeRoutes from "./routes/stripe.js";
+import ttsRoutes from "./routes/tts.js";
+import voiceRoutes from "./voiceRoute.js";
 
 dotenv.config();
 
-import aiRoutes from "./routes/ai.js";
-import ttsRoutes from "./routes/tts.js";
-import resumeRoutes from "./routes/resume.js";
-import stripeRoutes from "./routes/stripe.js";
-import authRoutes from "./routes/auth.js";
-
 const app = express();
+const PORT = process.env.PORT || 3000;
 
-// Middlewares
-app.use(cors());
-app.use(express.json({ limit: "10mb" }));
+// ------------ MIDDLEWARE ------------
+app.use(express.json());
 
-// Health check / root
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://localhost:5175",
+  "http://localhost:5176",
+  "https://jobspeakpro.netlify.app",
+  "https://www.jobspeakpro.netlify.app",
+  "https://jobspeakpro.com",
+  "https://www.jobspeakpro.com",
+];
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      console.warn("Blocked CORS origin:", origin);
+      return callback(null, false);
+    },
+    credentials: true,
+  })
+);
+
 app.get("/", (req, res) => {
-  res.send("JobSpeak Pro Backend Running on port 5055.");
+  res.json({ status: "ok", message: "JobSpeakPro backend running" });
 });
 
-// --- ROUTES ---
+// ------------ ROUTES ------------
 app.use("/ai", aiRoutes);
-app.use("/tts", ttsRoutes);
+app.use("/auth", authRoutes);
 app.use("/resume", resumeRoutes);
 app.use("/stripe", stripeRoutes);
-app.use("/auth", authRoutes);
+app.use("/tts", ttsRoutes);
+app.use("/voice", voiceRoutes);
 
-// --- START SERVER ---
-// IMPORTANT: use 5055 locally, but Railway will override with its own PORT env
-const PORT = process.env.PORT || 5055;
+app.use((req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
+
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error("Unhandled error:", err);
+  res.status(500).json({ error: "Internal server error" });
+});
 
 app.listen(PORT, () => {
-  console.log(`Backend running on http://localhost:${PORT}`);
+  console.log(`JobSpeakPro backend listening on port ${PORT}`);
 });
