@@ -4,72 +4,56 @@ import fetch from "node-fetch";
 
 const router = express.Router();
 
-const fallbackUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3";
-
-/**
- * POST /voice/generate
- * Body: { text: string }
- *
- * Logic:
- * 1. If ELEVENLABS_API_KEY is missing or ElevenLabs fails:
- *    → return FALLBACK_AUDIO (never 500).
- * 2. If ElevenLabs works:
- *    → return a data:audio/mpeg;base64,... URL.
- */
 router.post("/generate", async (req, res) => {
   try {
-    const { text } = req.body;
+    const { text, improvedAnswer } = req.body;
 
-    if (!text || !text.trim()) {
-      return res.status(400).json({ error: "Missing text" });
+    const content = improvedAnswer || text || "";
+    if (!content.trim()) {
+      return res.status(400).json({ error: "Missing text to convert to speech." });
     }
 
     const apiKey = process.env.ELEVENLABS_API_KEY;
     const voiceId = process.env.ELEVENLABS_VOICE_ID;
 
-    // Missing credentials → always return fallback MP3
     if (!apiKey || !voiceId) {
-      console.warn(
-        "ELEVENLABS env vars missing. Returning fallback sample audio."
-      );
-      return res.json({ audioUrl: fallbackUrl });
+      return res.status(500).json({
+        error: "Missing ElevenLabs API key or Voice ID",
+      });
     }
 
-    const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
-
-    let response;
-    try {
-      response = await fetch(url, {
+    const response = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+      {
         method: "POST",
         headers: {
           "xi-api-key": apiKey,
           "Content-Type": "application/json",
-          Accept: "audio/mpeg",
         },
         body: JSON.stringify({
-          text,
+          text: content,
           model_id: "eleven_monolingual_v1",
+          voice_settings: {
+            stability: 0.4,
+            similarity_boost: 0.8,
+          },
         }),
-      });
-    } catch (networkErr) {
-      console.error("ElevenLabs network error:", networkErr);
-      return res.json({ audioUrl: fallbackUrl });
-    }
+      }
+    );
 
     if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
-      console.error("ElevenLabs error:", errorText || response.statusText);
-      return res.json({ audioUrl: fallbackUrl });
+      const errText = await response.text();
+      console.error("ElevenLabs failure:", errText);
+      return res.status(500).json({ error: "ElevenLabs request failed" });
     }
 
-    const arrayBuffer = await response.arrayBuffer();
-    const base64 = Buffer.from(arrayBuffer).toString("base64");
-    const dataUrl = `data:audio/mpeg;base64,${base64}`;
-
-    return res.json({ audioUrl: dataUrl });
+    // Convert MP3 buffer into browser-playable blob
+    const audioBuffer = await response.arrayBuffer();
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.send(Buffer.from(audioBuffer));
   } catch (err) {
-    console.error("Voice generate route error:", err);
-    return res.json({ audioUrl: fallbackUrl });
+    console.error("Voice generation error:", err);
+    res.status(500).json({ error: "Voice generation failed" });
   }
 });
 
