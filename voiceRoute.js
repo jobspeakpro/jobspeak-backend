@@ -4,9 +4,7 @@ import fetch from "node-fetch";
 
 const router = express.Router();
 
-// Public fallback MP3 – always safe to use
-const FALLBACK_AUDIO =
-  "https://file-examples.com/storage/fe5c4a58bb470bf4c3e39a54/2017/11/file_example_MP3_700KB.mp3";
+const fallbackUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3";
 
 /**
  * POST /voice/generate
@@ -34,7 +32,7 @@ router.post("/generate", async (req, res) => {
       console.warn(
         "ELEVENLABS env vars missing. Returning fallback sample audio."
       );
-      return res.json({ audioUrl: FALLBACK_AUDIO });
+      return res.json({ audioUrl: fallbackUrl });
     }
 
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
@@ -55,13 +53,13 @@ router.post("/generate", async (req, res) => {
       });
     } catch (networkErr) {
       console.error("ElevenLabs network error:", networkErr);
-      return res.json({ audioUrl: FALLBACK_AUDIO });
+      return res.json({ audioUrl: fallbackUrl });
     }
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "");
       console.error("ElevenLabs error:", errorText || response.statusText);
-      return res.json({ audioUrl: FALLBACK_AUDIO });
+      return res.json({ audioUrl: fallbackUrl });
     }
 
     const arrayBuffer = await response.arrayBuffer();
@@ -71,7 +69,7 @@ router.post("/generate", async (req, res) => {
     return res.json({ audioUrl: dataUrl });
   } catch (err) {
     console.error("Voice generate route error:", err);
-    return res.json({ audioUrl: FALLBACK_AUDIO });
+    return res.json({ audioUrl: fallbackUrl });
   }
 });
 
