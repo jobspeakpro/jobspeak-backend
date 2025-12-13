@@ -1,7 +1,11 @@
 // jobspeak-backend/routes/ai.js
 import express from "express";
 import dotenv from "dotenv";
+import crypto from "crypto";
 import { askGPT } from "../services/openaiService.js";
+import { requireUsageAllowance } from "../middleware/usageLimit.js";
+import { rateLimiter } from "../middleware/rateLimiter.js";
+import { saveSessionWithIdempotency } from "../services/db.js";
 
 dotenv.config();
 
@@ -27,7 +31,7 @@ function simpleImprove(text) {
 
 /**
  * POST /ai/micro-demo
- * Body: { text: string }
+ * Body: { text: string, userKey: string }
  *
  * Returns:
  * {
@@ -36,13 +40,21 @@ function simpleImprove(text) {
  *   message: string
  * }
  */
-router.post("/micro-demo", async (req, res) => {
-  const { text } = req.body;
+// Rate limiting: 30 requests per minute per userKey (or IP if userKey not available)
+router.post("/micro-demo", rateLimiter(30, 60000, null, "ai:"), requireUsageAllowance, async (req, res) => {
+  const { text, userKey } = req.body;
 
+  // Validate text input size (max 5000 characters)
   if (!text || !text.trim()) {
     return res
       .status(400)
       .json({ error: "Please provide your answer text." });
+  }
+
+  if (text.length > 5000) {
+    return res
+      .status(400)
+      .json({ error: "Text input is too long. Maximum 5000 characters allowed." });
   }
 
   const baseResponse = {
@@ -52,22 +64,21 @@ router.post("/micro-demo", async (req, res) => {
   };
 
   const hasKey = !!process.env.OPENAI_API_KEY;
+  let improved = "";
 
   // If no key at all → use local simple improvement
   if (!hasKey) {
     console.warn(
       "No OPENAI_API_KEY found. Using simpleImprove fallback for /ai/micro-demo."
     );
-    const improved = simpleImprove(text);
-    return res.json({ ...baseResponse, improved });
-  }
+    improved = simpleImprove(text);
+  } else {
+    // Try OpenAI first, but if it fails, fall back to simpleImprove
+    try {
+      const systemPrompt =
+        "You are an AI English interview coach for ESL job seekers. Your job is to take their answer and rewrite it into natural, clear, confident English that is easy to say out loud in a real job interview. Keep the meaning the same, but improve grammar, structure, and tone. Do NOT make the answer too long or too complex. Make it sound like something a real person can remember and speak.";
 
-  // Try OpenAI first, but if it fails, fall back to simpleImprove
-  try {
-    const systemPrompt =
-      "You are an AI English interview coach for ESL job seekers. Your job is to take their answer and rewrite it into natural, clear, confident English that is easy to say out loud in a real job interview. Keep the meaning the same, but improve grammar, structure, and tone. Do NOT make the answer too long or too complex. Make it sound like something a real person can remember and speak.";
-
-    const userPrompt = `
+      const userPrompt = `
 Original answer from ESL job seeker:
 
 "${text}"
@@ -80,17 +91,49 @@ Task:
 5. Return ONLY the improved answer text, no explanation.
 `;
 
-    const improved = await askGPT({
-      prompt: userPrompt,
-      systemPrompt,
-    });
-
-    return res.json({ ...baseResponse, improved });
-  } catch (err) {
-    console.error("/ai/micro-demo error, falling back to simpleImprove:", err);
-    const improved = simpleImprove(text);
-    return res.json({ ...baseResponse, improved });
+      improved = await askGPT({
+        prompt: userPrompt,
+        systemPrompt,
+      });
+    } catch (err) {
+      console.error("/ai/micro-demo error, falling back to simpleImprove:", err);
+      improved = simpleImprove(text);
+    }
   }
+
+  const response = { ...baseResponse, improved };
+
+  // Auto-save session server-side after interview submission
+  // Uses idempotency key to avoid duplicates (e.g., from retries or double-clicks)
+  if (userKey && text && text.trim()) {
+    try {
+      // Generate idempotency key: hash of userKey + normalized text
+      // Normalize text by trimming and lowercasing to catch near-duplicates
+      const normalizedText = text.trim().toLowerCase().replace(/\s+/g, ' ');
+      const idempotencyData = `${userKey.trim()}:${normalizedText}`;
+      const idempotencyKey = crypto
+        .createHash('sha256')
+        .update(idempotencyData)
+        .digest('hex')
+        .substring(0, 32); // Use first 32 chars as key
+
+      const aiResponseJson = JSON.stringify(response);
+      
+      // Save session with idempotency (returns existing session if key exists, prevents duplicates)
+      saveSessionWithIdempotency(
+        userKey.trim(),
+        text.trim(),
+        aiResponseJson,
+        null, // score
+        idempotencyKey
+      );
+    } catch (saveError) {
+      // Log but don't fail the request - session saving is non-critical
+      console.error("Failed to auto-save session server-side:", saveError);
+    }
+  }
+
+  return res.json(response);
 });
 
 export default router;
