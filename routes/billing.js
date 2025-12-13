@@ -1,0 +1,511 @@
+// jobspeak-backend/routes/billing.js
+import express from "express";
+import Stripe from "stripe";
+import dotenv from "dotenv";
+import { getSubscription, upsertSubscription, updateSubscriptionStatus, getSubscriptionByStripeId, isWebhookEventProcessed, recordWebhookEvent } from "../services/db.js";
+
+dotenv.config();
+
+const router = express.Router();
+
+// Initialize Stripe - env var required, no fallback
+if (!process.env.STRIPE_SECRET_KEY) {
+  console.error("❌ STRIPE_SECRET_KEY is required in environment variables");
+}
+
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
+
+// POST /api/billing/create-checkout-session
+router.post("/billing/create-checkout-session", async (req, res) => {
+  try {
+    const { userKey, priceType } = req.body;
+
+    // Validate required fields
+    if (!userKey || typeof userKey !== "string" || userKey.trim().length === 0) {
+      return res.status(400).json({ error: "userKey is required and must be a non-empty string" });
+    }
+
+    if (!priceType || (priceType !== "monthly" && priceType !== "annual")) {
+      return res.status(400).json({ error: "priceType must be 'monthly' or 'annual'" });
+    }
+
+    // Validate env vars - no hardcoded fallbacks
+    if (!process.env.STRIPE_SECRET_KEY) {
+      console.error("❌ Missing STRIPE_SECRET_KEY in env");
+      return res.status(500).json({ error: "Backend missing STRIPE_SECRET_KEY" });
+    }
+
+    if (!stripe) {
+      return res.status(500).json({ error: "Stripe not initialized" });
+    }
+
+    const MONTHLY_PRICE_ID = process.env.STRIPE_PRICE_ID_MONTHLY;
+    const ANNUAL_PRICE_ID = process.env.STRIPE_PRICE_ID_ANNUAL;
+
+    if (!MONTHLY_PRICE_ID || !ANNUAL_PRICE_ID) {
+      console.error("❌ Missing Stripe price IDs in env");
+      return res.status(500).json({ error: "Stripe price IDs not configured" });
+    }
+
+    const FRONTEND_URL = process.env.FRONTEND_URL;
+    if (!FRONTEND_URL) {
+      console.error("❌ Missing FRONTEND_URL in env");
+      return res.status(500).json({ error: "FRONTEND_URL not configured" });
+    }
+
+    const priceId = priceType === "annual" ? ANNUAL_PRICE_ID : MONTHLY_PRICE_ID;
+
+    // Get or create Stripe customer
+    let customerId;
+    const existingSub = getSubscription(userKey.trim());
+    if (existingSub?.stripeCustomerId) {
+      customerId = existingSub.stripeCustomerId;
+    } else {
+      const customer = await stripe.customers.create({
+        metadata: { userKey: userKey.trim() },
+      });
+      customerId = customer.id;
+      
+      // Save customer ID
+      upsertSubscription(userKey.trim(), {
+        isPro: false,
+        stripeCustomerId: customerId,
+      });
+    }
+
+    // Use env var only, no hardcoded fallback
+    const successUrl = `${FRONTEND_URL}?success=true`;
+    const cancelUrl = `${FRONTEND_URL}?canceled=true`;
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      customer: customerId,
+      payment_method_types: ["card"],
+      line_items: [
+        {
+          price: priceId,
+          quantity: 1,
+        },
+      ],
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      metadata: { userKey: userKey.trim() },
+    });
+
+    console.log("✅ Stripe checkout session created:", session.id, "for userKey:", userKey.trim());
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error("❌ Stripe checkout session error:", err?.message || err);
+    res.status(500).json({
+      error: err?.message || "Failed to create checkout session",
+    });
+  }
+});
+
+// GET /api/billing/status?userKey=
+router.get("/billing/status", async (req, res) => {
+  try {
+    const { userKey } = req.query;
+
+    // Validate userKey - return 400 on missing field
+    if (!userKey || typeof userKey !== "string" || userKey.trim().length === 0) {
+      return res.status(400).json({ error: "userKey is required and must be a non-empty string" });
+    }
+
+    // Get subscription from database (keyed by userKey) - reads latest data
+    const subscription = getSubscription(userKey.trim());
+
+    if (!subscription) {
+      return res.json({ isPro: false, status: null, currentPeriodEnd: null });
+    }
+
+    // If we have a Stripe subscription ID, optionally verify with Stripe for accuracy
+    // This ensures we return the most up-to-date status immediately after webhook
+    // Ensure stable schema: all values explicitly set (never undefined)
+    let finalStatus = subscription.status || null;
+    let finalIsPro = Boolean(subscription.isPro);
+    let finalPeriodEnd = subscription.currentPeriodEnd || null;
+
+    if (subscription.stripeSubscriptionId && stripe) {
+      try {
+        // Retrieve fresh subscription data from Stripe (source of truth)
+        const stripeSubscription = await stripe.subscriptions.retrieve(subscription.stripeSubscriptionId);
+        
+        // Update our local state if Stripe has different data (handles race conditions)
+        if (stripeSubscription.status !== subscription.status) {
+          const isActive = stripeSubscription.status === "active" || stripeSubscription.status === "trialing";
+          const currentPeriodEnd = stripeSubscription.current_period_end 
+            ? new Date(stripeSubscription.current_period_end * 1000).toISOString() 
+            : null;
+          
+          // Sync database with Stripe truth
+          upsertSubscription(userKey.trim(), {
+            isPro: isActive,
+            stripeCustomerId: stripeSubscription.customer,
+            stripeSubscriptionId: stripeSubscription.id,
+            status: stripeSubscription.status,
+            currentPeriodEnd: currentPeriodEnd,
+          });
+          
+          finalStatus = stripeSubscription.status;
+          finalIsPro = isActive;
+          finalPeriodEnd = currentPeriodEnd;
+        } else {
+          // Status matches, but verify period end and isPro calculation
+          const currentPeriodEnd = stripeSubscription.current_period_end 
+            ? new Date(stripeSubscription.current_period_end * 1000).toISOString() 
+            : null;
+          
+          const isActive = stripeSubscription.status === "active" || stripeSubscription.status === "trialing";
+          let calculatedIsPro = isActive;
+          
+          // Check if period has ended
+          if (currentPeriodEnd) {
+            const periodEnd = new Date(currentPeriodEnd);
+            const now = new Date();
+            if (periodEnd < now) {
+              calculatedIsPro = false;
+            }
+          }
+          
+          // Update if calculation differs
+          if (calculatedIsPro !== subscription.isPro || currentPeriodEnd !== subscription.currentPeriodEnd) {
+            upsertSubscription(userKey.trim(), {
+              isPro: calculatedIsPro,
+              stripeCustomerId: stripeSubscription.customer,
+              stripeSubscriptionId: stripeSubscription.id,
+              status: stripeSubscription.status,
+              currentPeriodEnd: currentPeriodEnd,
+            });
+            finalIsPro = calculatedIsPro;
+            finalPeriodEnd = currentPeriodEnd;
+          }
+        }
+      } catch (stripeErr) {
+        // If Stripe API call fails, fall back to database values
+        console.warn(`[BILLING STATUS] Failed to verify with Stripe for ${userKey}:`, stripeErr.message);
+      }
+    }
+
+    // Final validation: ensure isPro matches status and period end
+    if (finalPeriodEnd) {
+      const periodEnd = new Date(finalPeriodEnd);
+      const now = new Date();
+      if (periodEnd < now) {
+        finalIsPro = false;
+        if (finalStatus !== "expired" && finalStatus !== "canceled") {
+          finalStatus = "expired";
+        }
+      }
+    }
+    
+    // Ensure isPro matches status truth (only active/trialing = true)
+    if (finalStatus !== "active" && finalStatus !== "trialing") {
+      finalIsPro = false;
+    }
+
+    // Return subscription status with stable schema: { isPro: boolean, status: string|null, currentPeriodEnd: string|null }
+    // Ensure all values are explicitly typed (never undefined)
+    return res.json({
+      isPro: Boolean(finalIsPro),
+      status: finalStatus || null,
+      currentPeriodEnd: finalPeriodEnd || null,
+    });
+  } catch (err) {
+    console.error("❌ Billing status error:", err?.message || err);
+    // Return stable schema even on error
+    res.status(500).json({ 
+      isPro: false, 
+      status: null, 
+      currentPeriodEnd: null 
+    });
+  }
+});
+
+// POST /api/billing/webhook (signature verified)
+router.post("/billing/webhook", async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const sig = req.headers["stripe-signature"];
+
+  // Log webhook receipt
+  console.log(`[WEBHOOK RECEIPT] ${timestamp} - Received webhook request`);
+  console.log(`[WEBHOOK RECEIPT] Signature present: ${!!sig}`);
+
+  // Validate webhook secret env var - no fallback
+  if (!process.env.STRIPE_WEBHOOK_SECRET) {
+    console.error(`[WEBHOOK ERROR] ${timestamp} - Missing STRIPE_WEBHOOK_SECRET`);
+    return res.status(400).send("Webhook secret not configured");
+  }
+
+  if (!stripe) {
+    console.error(`[WEBHOOK ERROR] ${timestamp} - Stripe not initialized`);
+    return res.status(500).send("Stripe not initialized");
+  }
+
+  let event;
+
+  // Verify webhook signature
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    console.log(`[WEBHOOK VERIFIED] ${timestamp} - Event ID: ${event.id}, Type: ${event.type}`);
+  } catch (err) {
+    console.error(`[WEBHOOK ERROR] ${timestamp} - Signature verification failed:`, {
+      error: err.message,
+      signaturePresent: !!sig,
+      bodyLength: req.body?.length || 0
+    });
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  try {
+    // Check for duplicate event (idempotency) - prevent race conditions
+    if (isWebhookEventProcessed(event.id)) {
+      console.log(`[WEBHOOK IDEMPOTENT] ${timestamp} - Event ${event.id} already processed, skipping`);
+      return res.json({ received: true, idempotent: true });
+    }
+
+    // Record event immediately to prevent race conditions (idempotent via INSERT OR IGNORE)
+    // This ensures that even if processing fails, we won't reprocess the same event
+    recordWebhookEvent(event.id, event.type, null, null);
+
+    // Handle checkout.session.completed - subscription activated
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object;
+      const userKey = session.metadata?.userKey;
+
+      console.log(`[WEBHOOK PROCESSING] ${timestamp} - checkout.session.completed`, {
+        eventId: event.id,
+        sessionId: session.id,
+        userKey: userKey || "missing",
+        subscriptionId: session.subscription || "missing"
+      });
+
+      if (!userKey) {
+        console.error(`[WEBHOOK ERROR] ${timestamp} - Missing userKey in session metadata`, {
+          eventId: event.id,
+          sessionId: session.id
+        });
+        // Update event record with available data
+        recordWebhookEvent(event.id, event.type, session.subscription || null, null);
+        return res.json({ received: true, error: "Missing userKey" });
+      }
+
+      if (!session.subscription) {
+        console.error(`[WEBHOOK ERROR] ${timestamp} - Missing subscription in session`, {
+          eventId: event.id,
+          sessionId: session.id,
+          userKey
+        });
+        // Update event record with userKey
+        recordWebhookEvent(event.id, event.type, null, userKey.trim());
+        return res.json({ received: true, error: "Missing subscription" });
+      }
+
+      // Always retrieve fresh subscription data from Stripe (source of truth)
+      const subscription = await stripe.subscriptions.retrieve(session.subscription);
+      
+      // Calculate isPro based on current Stripe status - ensure paid users get Pro status
+      const isActive = subscription.status === "active" || subscription.status === "trialing";
+      const currentPeriodEnd = subscription.current_period_end 
+        ? new Date(subscription.current_period_end * 1000).toISOString() 
+        : null;
+      
+      // Store subscription in database keyed by userKey (idempotent via ON CONFLICT)
+      // CRITICAL: Always set isPro correctly based on subscription status
+      upsertSubscription(userKey.trim(), {
+        isPro: isActive, // true if active or trialing
+        stripeCustomerId: subscription.customer,
+        stripeSubscriptionId: subscription.id,
+        status: subscription.status,
+        currentPeriodEnd: currentPeriodEnd,
+      });
+
+      // Update event record with final subscription data
+      recordWebhookEvent(event.id, event.type, subscription.id, userKey.trim());
+
+      console.log(`[WEBHOOK SUCCESS] ${timestamp} - Subscription activated`, {
+        eventId: event.id,
+        userKey: userKey.trim(),
+        subscriptionId: subscription.id,
+        status: subscription.status,
+        isPro: isActive,
+        currentPeriodEnd
+      });
+    } 
+    // Handle customer.subscription.updated - handles expiration, renewal, status changes
+    else if (event.type === "customer.subscription.updated") {
+      const subscription = event.data.object;
+      
+      console.log(`[WEBHOOK PROCESSING] ${timestamp} - customer.subscription.updated`, {
+        eventId: event.id,
+        subscriptionId: subscription.id,
+        status: subscription.status
+      });
+
+      // Always retrieve fresh subscription data from Stripe (source of truth)
+      const freshSubscription = await stripe.subscriptions.retrieve(subscription.id);
+      const existingSub = getSubscriptionByStripeId(freshSubscription.id);
+
+      if (existingSub) {
+        // Determine if subscription is active based on current Stripe status
+        const isActive = freshSubscription.status === "active" || freshSubscription.status === "trialing";
+        const currentPeriodEnd = freshSubscription.current_period_end 
+          ? new Date(freshSubscription.current_period_end * 1000).toISOString() 
+          : null;
+
+        // Update subscription status (handles expiration when status becomes past_due, unpaid, etc.)
+        updateSubscriptionStatus(
+          freshSubscription.id,
+          freshSubscription.status,
+          currentPeriodEnd
+        );
+
+        // Also update isPro flag based on status (idempotent via ON CONFLICT)
+        // CRITICAL: Always set isPro correctly based on subscription status
+        upsertSubscription(existingSub.userKey, {
+          isPro: isActive, // true if active or trialing
+          stripeCustomerId: freshSubscription.customer,
+          stripeSubscriptionId: freshSubscription.id,
+          status: freshSubscription.status,
+          currentPeriodEnd: currentPeriodEnd,
+        });
+
+        // Update event record with subscription data
+        recordWebhookEvent(event.id, event.type, freshSubscription.id, existingSub.userKey);
+
+        console.log(`[WEBHOOK SUCCESS] ${timestamp} - Subscription updated`, {
+          eventId: event.id,
+          subscriptionId: freshSubscription.id,
+          userKey: existingSub.userKey,
+          status: freshSubscription.status,
+          isPro: isActive,
+          currentPeriodEnd
+        });
+      } else {
+        console.warn(`[WEBHOOK WARNING] ${timestamp} - Subscription not found in database`, {
+          eventId: event.id,
+          subscriptionId: subscription.id
+        });
+        // Update event record with subscription data
+        recordWebhookEvent(event.id, event.type, subscription.id, null);
+      }
+    } 
+    // Handle customer.subscription.deleted - subscription canceled
+    else if (event.type === "customer.subscription.deleted") {
+      const subscription = event.data.object;
+      
+      console.log(`[WEBHOOK PROCESSING] ${timestamp} - customer.subscription.deleted`, {
+        eventId: event.id,
+        subscriptionId: subscription.id
+      });
+
+      const existingSub = getSubscriptionByStripeId(subscription.id);
+
+      if (existingSub) {
+        // Handle cancel - set status to canceled and isPro to false
+        updateSubscriptionStatus(subscription.id, "canceled", null);
+        
+        // Update isPro to false (idempotent via ON CONFLICT)
+        // CRITICAL: Canceled subscriptions are not Pro
+        upsertSubscription(existingSub.userKey, {
+          isPro: false,
+          stripeCustomerId: subscription.customer,
+          stripeSubscriptionId: subscription.id,
+          status: "canceled",
+          currentPeriodEnd: null,
+        });
+
+        // Update event record with subscription data
+        recordWebhookEvent(event.id, event.type, subscription.id, existingSub.userKey);
+
+        console.log(`[WEBHOOK SUCCESS] ${timestamp} - Subscription canceled`, {
+          eventId: event.id,
+          subscriptionId: subscription.id,
+          userKey: existingSub.userKey
+        });
+      } else {
+        console.warn(`[WEBHOOK WARNING] ${timestamp} - Subscription not found for deletion`, {
+          eventId: event.id,
+          subscriptionId: subscription.id
+        });
+        recordWebhookEvent(event.id, event.type, subscription.id, null);
+      }
+    }
+    // Handle other subscription events that indicate expiration
+    else if (event.type === "invoice.payment_failed") {
+      const invoice = event.data.object;
+      
+      console.log(`[WEBHOOK PROCESSING] ${timestamp} - invoice.payment_failed`, {
+        eventId: event.id,
+        invoiceId: invoice.id,
+        subscriptionId: invoice.subscription || "none"
+      });
+
+      if (invoice.subscription) {
+        // Always retrieve fresh subscription data from Stripe
+        const subscription = await stripe.subscriptions.retrieve(invoice.subscription);
+        const existingSub = getSubscriptionByStripeId(subscription.id);
+
+        if (existingSub) {
+          const currentPeriodEnd = subscription.current_period_end 
+            ? new Date(subscription.current_period_end * 1000).toISOString() 
+            : null;
+          
+          // Payment failed - update subscription status
+          updateSubscriptionStatus(
+            subscription.id,
+            subscription.status,
+            currentPeriodEnd
+          );
+
+          // Update isPro based on current status
+          // CRITICAL: Always set isPro correctly based on subscription status
+          const isActive = subscription.status === "active" || subscription.status === "trialing";
+          upsertSubscription(existingSub.userKey, {
+            isPro: isActive, // true if active or trialing
+            stripeCustomerId: subscription.customer,
+            stripeSubscriptionId: subscription.id,
+            status: subscription.status,
+            currentPeriodEnd: currentPeriodEnd,
+          });
+
+          // Update event record with subscription data
+          recordWebhookEvent(event.id, event.type, subscription.id, existingSub.userKey);
+
+          console.log(`[WEBHOOK SUCCESS] ${timestamp} - Payment failed handled`, {
+            eventId: event.id,
+            subscriptionId: subscription.id,
+            userKey: existingSub.userKey,
+            status: subscription.status,
+            isPro: isActive
+          });
+        } else {
+          // Update event record with subscription data
+          recordWebhookEvent(event.id, event.type, subscription.id, null);
+        }
+      } else {
+        // Update event record (no subscription)
+        recordWebhookEvent(event.id, event.type, null, null);
+      }
+    } else {
+      // Unknown event type - log (event already recorded at start)
+      console.log(`[WEBHOOK UNKNOWN] ${timestamp} - Unhandled event type: ${event.type}`, {
+        eventId: event.id
+      });
+      // Event already recorded at start, no need to record again
+    }
+
+    console.log(`[WEBHOOK COMPLETE] ${timestamp} - Event ${event.id} processed successfully`);
+    res.json({ received: true });
+  } catch (err) {
+    console.error(`[WEBHOOK ERROR] ${timestamp} - Processing failed:`, {
+      eventId: event?.id || "unknown",
+      error: err.message,
+      stack: err.stack
+    });
+    res.status(500).json({ error: "Webhook processing failed" });
+  }
+});
+
+export default router;
+
