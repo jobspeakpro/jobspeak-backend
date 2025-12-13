@@ -1,11 +1,18 @@
 import express from "express";
 import { askGPT } from "../services/openaiService.js";
+import { rateLimiter } from "../middleware/rateLimiter.js";
 
 const router = express.Router();
 
 // --- ANALYZE RESUME (FREE PREVIEW) ---
-router.post("/analyze", async (req, res) => {
-  const { text } = req.body || {};
+// Rate limiting: 20 requests per minute per userKey (or IP if userKey not available)
+router.post("/analyze", rateLimiter(20, 60000, null, "resume:"), async (req, res) => {
+  const { text, userKey } = req.body || {};
+
+  // Validate userKey
+  if (!userKey || typeof userKey !== "string" || userKey.trim().length === 0) {
+    return res.status(400).json({ error: "userKey is required and must be a non-empty string" });
+  }
 
   if (!text) {
     return res.status(400).json({ error: "Missing 'text' in body." });
@@ -26,7 +33,10 @@ ${text}
 `;
 
   try {
-    const result = await askGPT(prompt, true);
+    const result = await askGPT({
+      prompt,
+      systemPrompt: "You are a resume expert helping job seekers improve their resumes."
+    });
 
     // Parse and return in expected structure
     const parsed = JSON.parse(result);
@@ -48,7 +58,7 @@ router.post("/rewrite", async (req, res) => {
   const { text } = req.body || {};
 
   if (!text) {
-    return res.status400().json({ error: "Missing 'text' in body." });
+    return res.status(400).json({ error: "Missing 'text' in body." });
   }
 
   const prompt = `
@@ -65,7 +75,10 @@ ${text}
 `;
 
   try {
-    const result = await askGPT(prompt, true);
+    const result = await askGPT({
+      prompt,
+      systemPrompt: "You are a resume expert helping job seekers rewrite their resume sections in clean, professional US-style English."
+    });
     return res.json(JSON.parse(result));
 
   } catch (err) {

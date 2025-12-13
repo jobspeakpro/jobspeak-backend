@@ -127,6 +127,7 @@ app.use((req, res) => {
 // Centralized error handler (must be last)
 app.use(errorHandler);
 
-app.listen(PORT, () => {
+// Railway requires explicit binding to 0.0.0.0 to accept external connections
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`JobSpeakPro backend listening on port ${PORT}`);
 });
