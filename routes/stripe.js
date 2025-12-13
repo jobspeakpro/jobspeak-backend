@@ -5,7 +5,12 @@ dotenv.config();
 
 const router = express.Router();
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+// Initialize Stripe - handle missing env var gracefully (don't crash on boot)
+if (!process.env.STRIPE_SECRET_KEY) {
+  console.error("❌ STRIPE_SECRET_KEY is required in environment variables");
+}
+
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
 // -------------------------
 // CREATE CHECKOUT SESSION
@@ -35,6 +40,10 @@ router.post("/create-checkout-session", async (req, res) => {
 
     console.log("➡ Creating Stripe session with plan:", plan);
     console.log("➡ Using price ID:", priceToUse);
+
+    if (!stripe) {
+      return res.status(500).json({ error: "Stripe not initialized" });
+    }
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",

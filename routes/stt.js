@@ -12,9 +12,14 @@ const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 
-const openai = new OpenAI({
+// Initialize OpenAI - handle missing env var gracefully (don't crash on boot)
+if (!process.env.OPENAI_API_KEY) {
+  console.warn("⚠️ OPENAI_API_KEY is not set. STT endpoint will return errors if called.");
+}
+
+const openai = process.env.OPENAI_API_KEY ? new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
-});
+}) : null;
 
 // Ensure tmp directory exists
 const tmpDir = path.join(process.cwd(), "tmp");
@@ -54,6 +59,10 @@ router.post("/stt", upload.single("audio"), validateUserKey, rateLimiter(20, 600
   try {
     if (!req.file) {
       return res.status(400).json({ error: "No audio file uploaded" });
+    }
+
+    if (!openai) {
+      return res.status(500).json({ error: "OpenAI API key not configured" });
     }
 
     const transcript = await openai.audio.transcriptions.create({
