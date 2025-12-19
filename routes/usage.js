@@ -4,7 +4,7 @@ import { getSubscription, getTodaySessionCount } from "../services/db.js";
 
 const router = express.Router();
 
-const FREE_DAILY_LIMIT = 2;
+const FREE_DAILY_LIMIT = 3;
 
 // GET /api/usage/today?userKey=
 router.get("/usage/today", async (req, res) => {
