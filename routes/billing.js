@@ -2,7 +2,7 @@
 import express from "express";
 import Stripe from "stripe";
 import dotenv from "dotenv";
-import { getSubscription, upsertSubscription, updateSubscriptionStatus, getSubscriptionByStripeId, isWebhookEventProcessed, recordWebhookEvent } from "../services/db.js";
+import { getSubscription, upsertSubscription, updateSubscriptionStatus, getSubscriptionByStripeId, isWebhookEventProcessed, recordWebhookEvent, getTodaySessionCount } from "../services/db.js";
 
 dotenv.config();
 
@@ -14,6 +14,9 @@ if (!process.env.STRIPE_SECRET_KEY) {
 }
 
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
+
+// Free tier daily limit for "Fix my answer" feature
+const FREE_DAILY_LIMIT = 3;
 
 // POST /api/billing/create-checkout-session
 router.post("/billing/create-checkout-session", async (req, res) => {
@@ -116,7 +119,19 @@ router.get("/billing/status", async (req, res) => {
     const subscription = getSubscription(userKey.trim());
 
     if (!subscription) {
-      return res.json({ isPro: false, status: null, currentPeriodEnd: null });
+      // No subscription - free user, calculate usage
+      const used = getTodaySessionCount(userKey.trim());
+      const remaining = Math.max(0, FREE_DAILY_LIMIT - used);
+      return res.json({ 
+        isPro: false, 
+        status: null, 
+        currentPeriodEnd: null,
+        usage: {
+          used,
+          limit: FREE_DAILY_LIMIT,
+          remaining,
+        },
+      });
     }
 
     // If we have a Stripe subscription ID, optionally verify with Stripe for accuracy
@@ -204,12 +219,32 @@ router.get("/billing/status", async (req, res) => {
       finalIsPro = false;
     }
 
-    // Return subscription status with stable schema: { isPro: boolean, status: string|null, currentPeriodEnd: string|null }
-    // Ensure all values are explicitly typed (never undefined)
+    // Calculate usage information for free users
+    let usageInfo = null;
+    if (!finalIsPro) {
+      const used = getTodaySessionCount(userKey.trim());
+      const remaining = Math.max(0, FREE_DAILY_LIMIT - used);
+      usageInfo = {
+        used,
+        limit: FREE_DAILY_LIMIT,
+        remaining,
+      };
+    } else {
+      // Pro users have unlimited access
+      usageInfo = {
+        used: 0,
+        limit: -1, // -1 means unlimited
+        remaining: -1,
+      };
+    }
+
+    // Return subscription status with usage information
+    // Schema: { isPro: boolean, status: string|null, currentPeriodEnd: string|null, usage: { used, limit, remaining } }
     return res.json({
       isPro: Boolean(finalIsPro),
       status: finalStatus || null,
       currentPeriodEnd: finalPeriodEnd || null,
+      usage: usageInfo,
     });
   } catch (err) {
     console.error("❌ Billing status error:", err?.message || err);
@@ -217,7 +252,12 @@ router.get("/billing/status", async (req, res) => {
     res.status(500).json({ 
       isPro: false, 
       status: null, 
-      currentPeriodEnd: null 
+      currentPeriodEnd: null,
+      usage: {
+        used: 0,
+        limit: FREE_DAILY_LIMIT,
+        remaining: FREE_DAILY_LIMIT,
+      },
     });
   }
 });

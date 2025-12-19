@@ -1,11 +1,11 @@
 // jobspeak-backend/middleware/usageLimit.js
 import { getSubscription, getTodaySessionCount } from "../services/db.js";
 
-const FREE_DAILY_LIMIT = 2;
+const FREE_DAILY_LIMIT = 3;
 
 /**
  * Middleware to enforce free-tier usage limits
- * - Free users: 2 interview sessions per day
+ * - Free users: 3 interview sessions per day
  * - Pro users: unlimited (server-side enforcement only)
  * - Returns 402 { upgrade: true } when limit reached
  */
@@ -48,10 +48,10 @@ export const requireUsageAllowance = (req, res, next) => {
     // Free users: count sessions created today
     const todayCount = getTodaySessionCount(userKey.trim());
 
-    // Enforce limit: 2 sessions per day for free users
+    // Enforce limit: 3 sessions per day for free users
     if (todayCount >= FREE_DAILY_LIMIT) {
       return res.status(402).json({
-        error: "Daily limit of 2 interview sessions reached. Upgrade to Pro for unlimited access.",
+        error: "Daily limit of 3 interview sessions reached. Upgrade to Pro for unlimited access.",
         upgrade: true,
       });
     }
