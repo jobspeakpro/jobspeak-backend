@@ -16,13 +16,16 @@ const __dirname = path.dirname(__filename);
 const router = express.Router();
 
 // Set ffmpeg path from ffmpeg-static (works on Railway without system ffmpeg)
+let ffmpegPath = null;
 if (ffmpegStatic) {
-  ffmpeg.setFfmpegPath(ffmpegStatic);
-  console.log("[STT] Using ffmpeg path:", ffmpegStatic);
-  console.log("[STT] FFmpeg path verified:", fs.existsSync(ffmpegStatic) ? "EXISTS" : "NOT FOUND");
+  ffmpegPath = ffmpegStatic;
+  ffmpeg.setFfmpegPath(ffmpegPath);
+  console.log("[STT] Using ffmpeg path:", ffmpegPath);
+  console.log("[STT] FFmpeg path verified:", fs.existsSync(ffmpegPath) ? "EXISTS" : "NOT FOUND");
 } else {
   console.error("[STT] ERROR: ffmpeg-static not found. WebM conversion will fail.");
   console.error("[STT] Check package.json - ffmpeg-static must be in dependencies (not devDependencies)");
+  console.log("[STT] FFmpeg path: ffmpeg not found");
 }
 
 // Initialize OpenAI - handle missing env var gracefully (don't crash on boot)
@@ -114,7 +117,7 @@ async function transcodeToWav(inputPath, mimetype) {
     throw new Error("FFmpeg not available - cannot transcode " + mimetype);
   }
   
-  console.log(`[STT] Starting transcoding: ${mimetype} -> WAV`);
+  console.log(`[STT] Transcoding -> WAV starting`);
   console.log(`[STT] Input file: ${inputPath}`);
   console.log(`[STT] Output file: ${outputPath}`);
   
@@ -145,7 +148,7 @@ async function transcodeToWav(inputPath, mimetype) {
         }
       })
       .on("end", () => {
-        // Verify output file was created
+        // Verify output file was created and has size > 0
         if (!fs.existsSync(outputPath)) {
           console.error(`[STT] ERROR: Output file not found after transcoding: ${outputPath}`);
           reject(new Error("Transcoding completed but output file not found"));
@@ -153,7 +156,13 @@ async function transcodeToWav(inputPath, mimetype) {
         }
         
         const outputStats = fs.statSync(outputPath);
-        console.log(`[STT] Transcoding completed successfully`);
+        if (outputStats.size === 0) {
+          console.error(`[STT] ERROR: Output file is empty: ${outputPath}`);
+          reject(new Error("Transcoding completed but output file is empty"));
+          return;
+        }
+        
+        console.log(`[STT] Transcoding -> WAV complete`);
         console.log(`[STT] Output file size: ${outputStats.size} bytes`);
         console.log(`[STT] Output file path: ${outputPath}`);
         resolve(outputPath);
@@ -255,6 +264,10 @@ const uploadAudio = (req, res, next) => {
 // Note: userKey comes from form-data, so rate limiting happens after multer
 // Order: multer -> validateUserKey -> rateLimiter -> handler
 router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter(20, 60000, null, "stt:"), async (req, res) => {
+  // Track files for cleanup
+  const originalFilePath = req.file?.path;
+  let outputWavPath = null;
+  
   try {
     if (!req.file) {
       return res.status(400).json({ error: "No audio file uploaded" });
@@ -270,6 +283,7 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     console.log("[STT] originalname:", originalname);
     console.log("[STT] size:", fileSize, "bytes");
     console.log("[STT] temp path:", req.file.path);
+    console.log("[STT] FFmpeg path:", ffmpegPath || "ffmpeg not found");
 
     // Check for missing environment keys
     const missingKeys = [];
@@ -279,9 +293,6 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     
     if (missingKeys.length > 0) {
       console.error("STT ERROR: Missing required environment keys:", missingKeys);
-      if (req.file) {
-        fs.unlink(req.file.path, () => {});
-      }
       return res.status(500).json({ 
         error: "STT misconfigured", 
         missing: missingKeys
@@ -290,9 +301,6 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
 
     if (!openai) {
       console.error("STT ERROR: OpenAI client not initialized - missing OPENAI_API_KEY");
-      if (req.file) {
-        fs.unlink(req.file.path, () => {});
-      }
       return res.status(500).json({ 
         error: "STT misconfigured", 
         missing: ["OPENAI_API_KEY"]
@@ -302,9 +310,6 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     // Check file size - if 0 or < 1000 bytes, return 400 immediately
     if (!fileSize || fileSize < 1000) {
       console.error("STT ERROR: File too small - size:", fileSize);
-      if (req.file) {
-        fs.unlink(req.file.path, () => {});
-      }
       return res.status(400).json({ 
         error: "empty_audio_upload", 
         size: fileSize 
@@ -314,53 +319,58 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     // Determine if transcoding is needed (webm/ogg only)
     const requiresTranscoding = needsTranscoding(mimetype);
     let audioFilePath = req.file.path;
-    let wavPath = null;
-    let shouldDeleteWav = false;
+    let filenameSent = null;
+    let mimeSent = null;
     
     if (requiresTranscoding) {
       console.log(`[STT] Transcoding required for ${mimetype}`);
-      // Transcode webm/ogg to WAV (16kHz mono)
-      if (!ffmpegStatic) {
+      
+      // Check if ffmpeg is available
+      if (!ffmpegStatic || !ffmpegPath) {
         console.error("[STT] ERROR: FFmpeg not available - cannot transcode", mimetype);
-        if (req.file) {
-          fs.unlink(req.file.path, () => {});
-        }
         return res.status(400).json({ 
-          error: "unsupported_format", 
-          details: `Cannot transcode ${mimetype}. FFmpeg not available. Supported formats: audio/wav, audio/mpeg, audio/mp4`,
-          mimetype: mimetype
+          error: "ffmpeg_missing",
+          received: mimetype,
+          supported: ["audio/wav", "audio/mp3", "audio/mpeg", "audio/mp4"]
         });
       }
       
+      // Create deterministic output path
+      outputWavPath = `${req.file.path}.wav`;
+      console.log(`[STT] Output WAV path: ${outputWavPath}`);
+      
       try {
-        console.log(`[STT] Starting transcoding ${mimetype} to WAV (16kHz mono)...`);
-        wavPath = await transcodeToWav(req.file.path, mimetype);
-        shouldDeleteWav = true;
-        req.wavFilePath = wavPath; // Store for error handler cleanup
-        audioFilePath = wavPath;
+        // Transcode webm/ogg to WAV (16kHz mono)
+        const transcodedPath = await transcodeToWav(req.file.path, mimetype);
         
-        // Verify WAV file was created
-        if (!fs.existsSync(wavPath)) {
+        // Verify output exists and size > 0
+        if (!fs.existsSync(transcodedPath)) {
           console.error("[STT] ERROR: WAV transcoding failed - output file not found");
-          if (req.file && req.file.path) {
-            fs.unlink(req.file.path, () => {});
-          }
           return res.status(500).json({ 
             error: "stt_failed", 
             details: "Failed to transcode to WAV - output file not found"
           });
         }
         
-        const wavStats = fs.statSync(wavPath);
-        console.log(`[STT] Transcoding complete, WAV file size: ${wavStats.size} bytes`);
-        console.log(`[STT] Using transcoded WAV file: ${wavPath}`);
+        const wavStats = fs.statSync(transcodedPath);
+        if (wavStats.size === 0) {
+          console.error("[STT] ERROR: WAV file is empty");
+          return res.status(500).json({ 
+            error: "stt_failed", 
+            details: "Transcoded WAV file is empty"
+          });
+        }
+        
+        console.log(`[STT] Output WAV size: ${wavStats.size} bytes`);
+        
+        // Set the file to use for OpenAI
+        audioFilePath = transcodedPath;
+        filenameSent = "audio.wav";
+        mimeSent = "audio/wav";
+        
       } catch (transcodeErr) {
         console.error("[STT] ERROR: Transcoding failed:", transcodeErr.message);
         console.error("[STT] Transcoding error stack:", transcodeErr.stack);
-        // Clean up original file
-        if (req.file && req.file.path) {
-          fs.unlink(req.file.path, () => {});
-        }
         return res.status(400).json({ 
           error: "transcoding_failed", 
           details: transcodeErr.message || "Failed to transcode to WAV",
@@ -369,31 +379,18 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
       }
     } else {
       console.log(`[STT] File format ${mimetype} does not require transcoding, using directly`);
+      filenameSent = getFilenameWithExtension(mimetype);
+      mimeSent = mimetype;
     }
 
-    // Read audio file and create OpenAI File using toFile helper
-    // CRITICAL: When transcoding, we MUST use the WAV file, not the original
-    console.log(`[STT] Reading audio file: ${audioFilePath}`);
-    console.log(`[STT] File exists: ${fs.existsSync(audioFilePath) ? "YES" : "NO"}`);
-    
-    const fileBuffer = fs.readFileSync(audioFilePath);
-    
-    // FORCE filename and type when transcoding - OpenAI requires .wav extension and audio/wav type
-    let filename, fileType;
-    if (requiresTranscoding) {
-      filename = "audio.wav";
-      fileType = "audio/wav";
-      console.log(`[STT] FORCED: Using transcoded WAV file`);
-    } else {
-      filename = getFilenameWithExtension(mimetype);
-      fileType = mimetype;
-      console.log(`[STT] Using original file (no transcoding needed)`);
-    }
-    
-    console.log(`[STT] Final file sent to OpenAI: path=${audioFilePath}, name=${filename}, type=${fileType}, size=${fileBuffer.length} bytes`);
-    
-    const openaiFile = await toFile(fileBuffer, filename, {
-      type: fileType,
+    // Log exactly what file is being sent to OpenAI
+    const finalStats = fs.statSync(audioFilePath);
+    console.log(`[STT] Sending to OpenAI: path=${audioFilePath} type=${mimeSent} filename=${filenameSent} size=${finalStats.size} bytes`);
+
+    // Create OpenAI File using stream (not buffer) - CRITICAL: use the WAV file when transcoded
+    const audioStream = fs.createReadStream(audioFilePath);
+    const openaiFile = await toFile(audioStream, filenameSent, {
+      type: mimeSent,
     });
 
     // Call OpenAI transcription API
@@ -401,10 +398,10 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     try {
       console.log(`[STT] Calling OpenAI transcription API`);
       console.log(`[STT]   model: whisper-1`);
-      console.log(`[STT]   file type: ${fileType}`);
+      console.log(`[STT]   file type: ${mimeSent}`);
       transcript = await openai.audio.transcriptions.create({
         file: openaiFile,
-        model: "whisper-1",  // Use correct OpenAI Whisper model
+        model: "whisper-1",
       });
       console.log(`[STT] OpenAI transcription successful`);
       console.log(`[STT]   transcript length: ${transcript.text?.length || 0} characters`);
@@ -418,17 +415,10 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
       console.error("[STT]   error status:", openaiErr.status);
       console.error("[STT]   error code:", openaiErr.code);
       console.error("[STT]   original mimetype:", mimetype);
-      console.error("[STT]   file type sent to OpenAI:", fileType);
+      console.error("[STT]   file type sent to OpenAI:", mimeSent);
+      console.error("[STT]   file path sent to OpenAI:", audioFilePath);
       if (openaiErr.response) {
         console.error("[STT]   OpenAI response:", openaiErr.response);
-      }
-      
-      // Clean up temp files before returning error
-      if (req.file && req.file.path) {
-        fs.unlink(req.file.path, () => {});
-      }
-      if (wavPath && fs.existsSync(wavPath)) {
-        fs.unlink(wavPath, () => {});
       }
       
       // If OpenAI returns 400, return 400 status with clear error
@@ -438,7 +428,7 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
           error: "stt_failed", 
           details: openaiErr.message || "OpenAI transcription failed - unsupported file format",
           mimetype: mimetype,
-          fileType: fileType
+          fileType: mimeSent
         });
       }
       
@@ -446,21 +436,6 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
       return res.status(500).json({ 
         error: "stt_failed", 
         details: openaiErr.message || "OpenAI transcription failed"
-      });
-    }
-
-    // Clean up temp files on success
-    console.log(`[STT] Cleaning up temporary files`);
-    if (req.file && req.file.path) {
-      fs.unlink(req.file.path, (err) => {
-        if (err) console.error(`[STT] Error deleting original file: ${err.message}`);
-        else console.log(`[STT] Deleted original file: ${req.file.path}`);
-      });
-    }
-    if (shouldDeleteWav && wavPath && fs.existsSync(wavPath)) {
-      fs.unlink(wavPath, (err) => {
-        if (err) console.error(`[STT] Error deleting WAV file: ${err.message}`);
-        else console.log(`[STT] Deleted WAV file: ${wavPath}`);
       });
     }
 
@@ -479,17 +454,6 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     console.error("Error status:", err.status);
     console.error("==============================");
     
-    // Clean up uploaded file if present
-    if (req.file && req.file.path) {
-      fs.unlink(req.file.path, () => {});
-    }
-    
-    // Clean up WAV file if transcoding was attempted
-    if (req.wavFilePath && fs.existsSync(req.wavFilePath)) {
-      fs.unlink(req.wavFilePath, () => {});
-      console.log("Cleaned up WAV file in error handler");
-    }
-    
     // If OpenAI throws 400, return that 400 with proper error format
     if (err.status === 400 || err.code === 400 || (err.message && err.message.includes("400"))) {
       return res.status(400).json({ 
@@ -503,6 +467,23 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
       error: "stt_failed", 
       details: err.message || "Unknown error occurred"
     });
+  } finally {
+    // Cleanup: delete original tmp file and output wav file
+    console.log(`[STT] Cleaning up temporary files`);
+    
+    if (originalFilePath && fs.existsSync(originalFilePath)) {
+      fs.unlink(originalFilePath, (err) => {
+        if (err) console.error(`[STT] Error deleting original file: ${err.message}`);
+        else console.log(`[STT] Deleted original file: ${originalFilePath}`);
+      });
+    }
+    
+    if (outputWavPath && fs.existsSync(outputWavPath)) {
+      fs.unlink(outputWavPath, (err) => {
+        if (err) console.error(`[STT] Error deleting WAV file: ${err.message}`);
+        else console.log(`[STT] Deleted WAV file: ${outputWavPath}`);
+      });
+    }
   }
 });
 
