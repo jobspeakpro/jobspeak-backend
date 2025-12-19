@@ -5,6 +5,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import OpenAI from "openai";
+import { toFile } from "openai/uploads";
 import { rateLimiter } from "../middleware/rateLimiter.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -31,6 +32,51 @@ const upload = multer({
   dest: tmpDir,
   limits: { fileSize: 25 * 1024 * 1024 }, // 25MB max file size
 });
+
+// Supported audio mimetypes and their extensions
+const SUPPORTED_MIMETYPES = {
+  "audio/webm": ".webm",
+  "video/webm": ".webm", // video/webm is treated as audio/webm for OpenAI
+  "audio/ogg": ".ogg",
+  "video/ogg": ".ogg", // video/ogg is treated as audio/ogg for OpenAI
+  "audio/wav": ".wav",
+  "audio/mpeg": ".mp3",
+  "audio/mp4": ".mp4",
+};
+
+// Helper function to normalize mimetype for OpenAI
+const normalizeMimetypeForOpenAI = (mimetype) => {
+  // Normalize video/webm to audio/webm
+  if (mimetype === "video/webm") {
+    return "audio/webm";
+  }
+  // Normalize video/ogg to audio/ogg
+  if (mimetype === "video/ogg") {
+    return "audio/ogg";
+  }
+  return mimetype;
+};
+
+// Helper function to get filename with extension based on mimetype
+const getFilenameWithExtension = (mimetype) => {
+  if (mimetype.includes("webm")) {
+    return "audio.webm";
+  }
+  if (mimetype.includes("ogg")) {
+    return "audio.ogg";
+  }
+  if (mimetype === "audio/wav") {
+    return "audio.wav";
+  }
+  if (mimetype === "audio/mpeg") {
+    return "audio.mp3";
+  }
+  if (mimetype === "audio/mp4") {
+    return "audio.mp4";
+  }
+  // Fallback
+  return "audio";
+};
 
 // Multer error handler middleware - must be before route handlers
 const handleMulterError = (err, req, res, next) => {
@@ -117,26 +163,37 @@ const uploadAudio = (req, res, next) => {
 // Note: userKey comes from form-data, so rate limiting happens after multer
 // Order: multer -> validateUserKey -> rateLimiter -> handler
 router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter(20, 60000, null, "stt:"), async (req, res) => {
-  // ========== DEBUG LOGGING ==========
-  console.log("=== STT REQUEST DEBUG ===");
-  console.log("Content-Type:", req.headers['content-type']);
-  console.log("Body keys:", Object.keys(req.body || {}));
-  console.log("File present:", !!req.file);
-  if (req.file) {
-    console.log("File metadata:", {
-      originalname: req.file.originalname,
-      mimetype: req.file.mimetype,
-      size: req.file.size,
-      fieldname: req.file.fieldname,
-    });
-  }
-  console.log("userKey present:", !!req.body?.userKey);
-  console.log("userKey value:", req.body?.userKey ? `${req.body.userKey.substring(0, 10)}...` : "missing");
-  console.log("=========================");
-  
   try {
     if (!req.file) {
       return res.status(400).json({ error: "No audio file uploaded" });
+    }
+
+    // Log file metadata ONCE per request
+    console.log("STT Request - mimetype:", req.file.mimetype, "originalname:", req.file.originalname || "(not provided)", "size:", req.file.size, "bytes");
+
+    // Validate mimetype before proceeding
+    if (!req.file.mimetype || !SUPPORTED_MIMETYPES[req.file.mimetype]) {
+      console.error("STT ERROR: Unsupported mimetype:", req.file.mimetype);
+      if (req.file) {
+        fs.unlink(req.file.path, () => {});
+      }
+      return res.status(400).json({ 
+        error: "unsupported_audio_type", 
+        mimetype: req.file.mimetype,
+        supported: Object.keys(SUPPORTED_MIMETYPES)
+      });
+    }
+
+    // Check file size - if 0 or < 1000 bytes, return 400 immediately
+    if (!req.file.size || req.file.size < 1000) {
+      console.error("STT ERROR: File too small - size:", req.file.size);
+      if (req.file) {
+        fs.unlink(req.file.path, () => {});
+      }
+      return res.status(400).json({ 
+        error: "empty_audio_upload", 
+        size: req.file.size 
+      });
     }
 
     // Check for missing environment keys
@@ -167,9 +224,33 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
       });
     }
 
-    console.log("Calling OpenAI transcription API...");
+    // Normalize mimetype for OpenAI
+    const normalizedMimetype = normalizeMimetypeForOpenAI(req.file.mimetype);
+    
+    // Determine filename with extension based on normalized mimetype
+    const filename = getFilenameWithExtension(normalizedMimetype);
+
+    // Forensic logging right before calling OpenAI
+    console.log("=== STT FORENSICS ===");
+    console.log("req.file.size:", req.file.size);
+    console.log("req.file.mimetype:", req.file.mimetype);
+    console.log("req.file.originalname:", req.file.originalname);
+    console.log("req.file.path:", req.file.path);
+    
+    // Read first 32 bytes and log as hex (magic bytes)
+    const head = fs.readFileSync(req.file.path).subarray(0, 32);
+    console.log("HEAD_HEX", Buffer.from(head).toString("hex"));
+    console.log("====================");
+
+    // Read file and create OpenAI File using toFile helper
+    const fileBuffer = fs.readFileSync(req.file.path);
+    const openaiFile = await toFile(fileBuffer, filename, {
+      type: normalizedMimetype,
+    });
+
+    console.log("Calling OpenAI transcription API with filename:", filename, "type:", normalizedMimetype);
     const transcript = await openai.audio.transcriptions.create({
-      file: fs.createReadStream(req.file.path),
+      file: openaiFile,
       model: "gpt-4o-mini-transcribe",
     });
 
@@ -179,38 +260,35 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     return res.json({
       transcript: transcript.text || "",
     });
-  } catch (error) {
-    // Robust server-side logging with full error details
-    console.error("=== STT ERROR ===");
-    console.error("Error message:", error.message);
-    console.error("Error name:", error.name);
-    console.error("Error code:", error.code);
-    console.error("Error status:", error.status);
-    console.error("Full stack:", error.stack);
-    console.error("Request context:", {
-      userKey: req.userKey,
-      filePath: req.file?.path,
-      fileField: req.file?.fieldname,
-      contentType: req.headers['content-type'],
-    });
-    console.error("=================");
+  } catch (err) {
+    // Log full error stack
+    console.error("=== STT ERROR (FULL STACK) ===");
+    console.error(err.stack || err);
+    console.error("Error name:", err.name);
+    console.error("Error message:", err.message);
+    console.error("Error code:", err.code);
+    console.error("Error status:", err.status);
+    console.error("==============================");
     
+    // Clean up uploaded file if present
     if (req.file) {
       fs.unlink(req.file.path, () => {});
     }
     
-    // Return descriptive JSON error
-    // Check if it's an OpenAI API error
-    if (error.status || error.code) {
-      return res.status(error.status || 500).json({ 
-        error: "Speech-to-text failed", 
-        details: error.message || "Unknown error occurred"
+    // If OpenAI throws 400, return that 400 with proper error format
+    if (err.status === 400 || err.code === 400 || (err.message && err.message.includes("400"))) {
+      return res.status(400).json({ 
+        error: "openai_stt_failed", 
+        message: err.message || "Unknown error occurred",
+        code: err.code || "400"
       });
     }
     
+    // Return JSON error with details for other errors
     return res.status(500).json({ 
-      error: "Speech-to-text failed", 
-      details: error.message || "Unknown error occurred"
+      error: "stt_failed", 
+      details: err.message || "Unknown error occurred",
+      name: err.name || "Error"
     });
   }
 });
