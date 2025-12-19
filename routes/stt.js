@@ -95,21 +95,47 @@ const isWebmFile = (mimetype, originalname) => {
          (originalname && originalname.toLowerCase().endsWith(".webm"));
 };
 
-// Helper function to transcode any audio file to WAV using ffmpeg
-async function transcodeToWav(inputPath) {
+// Helper function to check if file needs transcoding (webm/ogg only)
+const needsTranscoding = (mimetype) => {
+  return mimetype === "audio/webm" || 
+         mimetype === "video/webm" ||
+         mimetype === "audio/ogg" || 
+         mimetype === "video/ogg";
+};
+
+// Helper function to transcode webm/ogg to WAV using ffmpeg (16kHz mono)
+async function transcodeToWav(inputPath, mimetype) {
   const outputPath = inputPath + '.wav';
+  
+  // Check if ffmpeg is available
+  if (!ffmpegStatic) {
+    throw new Error("FFmpeg not available - cannot transcode " + mimetype);
+  }
+  
+  console.log(`Transcoding ${mimetype} to WAV: ${inputPath} -> ${outputPath}`);
   
   return new Promise((resolve, reject) => {
     ffmpeg(inputPath)
-      .audioChannels(1)
-      .audioFrequency(16000)
+      .audioChannels(1)        // Mono
+      .audioFrequency(16000)    // 16kHz
+      .audioCodec('pcm_s16le')  // PCM 16-bit little-endian (standard WAV)
       .format('wav')
+      .on("start", (commandLine) => {
+        console.log("FFmpeg command:", commandLine);
+      })
+      .on("progress", (progress) => {
+        if (progress.percent) {
+          console.log(`Transcoding progress: ${Math.round(progress.percent)}%`);
+        }
+      })
       .on("end", () => {
+        console.log("Transcoding completed successfully");
         resolve(outputPath);
       })
       .on("error", (err) => {
-        console.error("FFmpeg transcoding error:", err);
-        reject(err);
+        console.error("FFmpeg transcoding error:", err.message);
+        console.error("FFmpeg error details:", err);
+        reject(new Error(`Transcoding failed: ${err.message}`));
       })
       .save(outputPath);
   });
@@ -206,7 +232,10 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     }
 
     // Log original file metadata
-    console.log("STT Request - mimetype:", req.file.mimetype, "originalname:", req.file.originalname || "(not provided)", "size:", req.file.size, "bytes");
+    const mimetype = req.file.mimetype || "unknown";
+    const originalname = req.file.originalname || "(not provided)";
+    const fileSize = req.file.size || 0;
+    console.log("STT Request - mimetype:", mimetype, "originalname:", originalname, "size:", fileSize, "bytes");
 
     // Check for missing environment keys
     const missingKeys = [];
@@ -237,66 +266,101 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     }
 
     // Check file size - if 0 or < 1000 bytes, return 400 immediately
-    if (!req.file.size || req.file.size < 1000) {
-      console.error("STT ERROR: File too small - size:", req.file.size);
+    if (!fileSize || fileSize < 1000) {
+      console.error("STT ERROR: File too small - size:", fileSize);
       if (req.file) {
         fs.unlink(req.file.path, () => {});
       }
       return res.status(400).json({ 
         error: "empty_audio_upload", 
-        size: req.file.size 
+        size: fileSize 
       });
     }
 
-    // Always transcode to WAV before sending to OpenAI
+    // Determine if transcoding is needed (webm/ogg only)
+    const requiresTranscoding = needsTranscoding(mimetype);
+    let audioFilePath = req.file.path;
     let wavPath = null;
     let shouldDeleteWav = false;
     
-    try {
-      console.log("Transcoding to WAV...");
-      wavPath = await transcodeToWav(req.file.path);
-      shouldDeleteWav = true;
-      req.wavFilePath = wavPath; // Store for error handler cleanup
-      
-      // Verify WAV file was created
-      if (!fs.existsSync(wavPath)) {
-        console.error("STT ERROR: WAV transcoding failed - output file not found");
-        fs.unlink(req.file.path, () => {});
-        return res.status(500).json({ 
-          error: "stt_failed", 
-          details: "Failed to transcode to WAV - output file not found"
+    if (requiresTranscoding) {
+      // Transcode webm/ogg to WAV (16kHz mono)
+      if (!ffmpegStatic) {
+        console.error("STT ERROR: FFmpeg not available - cannot transcode", mimetype);
+        if (req.file) {
+          fs.unlink(req.file.path, () => {});
+        }
+        return res.status(400).json({ 
+          error: "unsupported_format", 
+          details: `Cannot transcode ${mimetype}. FFmpeg not available. Supported formats: audio/wav, audio/mpeg, audio/mp4`,
+          mimetype: mimetype
         });
       }
       
-      const wavStats = fs.statSync(wavPath);
-      console.log("Transcoding complete, WAV file size:", wavStats.size, "bytes");
-    } catch (transcodeErr) {
-      console.error("STT ERROR: Transcoding failed:", transcodeErr.message);
-      // Clean up original file
-      if (req.file && req.file.path) {
-        fs.unlink(req.file.path, () => {});
+      try {
+        console.log(`Transcoding ${mimetype} to WAV (16kHz mono)...`);
+        wavPath = await transcodeToWav(req.file.path, mimetype);
+        shouldDeleteWav = true;
+        req.wavFilePath = wavPath; // Store for error handler cleanup
+        audioFilePath = wavPath;
+        
+        // Verify WAV file was created
+        if (!fs.existsSync(wavPath)) {
+          console.error("STT ERROR: WAV transcoding failed - output file not found");
+          if (req.file && req.file.path) {
+            fs.unlink(req.file.path, () => {});
+          }
+          return res.status(500).json({ 
+            error: "stt_failed", 
+            details: "Failed to transcode to WAV - output file not found"
+          });
+        }
+        
+        const wavStats = fs.statSync(wavPath);
+        console.log("Transcoding complete, WAV file size:", wavStats.size, "bytes");
+      } catch (transcodeErr) {
+        console.error("STT ERROR: Transcoding failed:", transcodeErr.message);
+        // Clean up original file
+        if (req.file && req.file.path) {
+          fs.unlink(req.file.path, () => {});
+        }
+        return res.status(400).json({ 
+          error: "transcoding_failed", 
+          details: transcodeErr.message || "Failed to transcode to WAV",
+          mimetype: mimetype
+        });
       }
-      return res.status(500).json({ 
-        error: "stt_failed", 
-        details: transcodeErr.message || "Failed to transcode to WAV"
-      });
+    } else {
+      console.log(`File format ${mimetype} does not require transcoding, using directly`);
     }
 
-    // Read WAV file and create OpenAI File using toFile helper
-    const fileBuffer = fs.readFileSync(wavPath);
-    const openaiFile = await toFile(fileBuffer, "audio.wav", {
-      type: "audio/wav",
+    // Read audio file and create OpenAI File using toFile helper
+    const fileBuffer = fs.readFileSync(audioFilePath);
+    const filename = requiresTranscoding ? "audio.wav" : getFilenameWithExtension(mimetype);
+    const fileType = requiresTranscoding ? "audio/wav" : mimetype;
+    
+    console.log(`Creating OpenAI file: ${filename}, type: ${fileType}, size: ${fileBuffer.length} bytes`);
+    const openaiFile = await toFile(fileBuffer, filename, {
+      type: fileType,
     });
 
     // Call OpenAI transcription API
     let transcript;
     try {
+      console.log("Calling OpenAI transcription API with model: whisper-1");
       transcript = await openai.audio.transcriptions.create({
         file: openaiFile,
-        model: "gpt-4o-mini-transcribe",
+        model: "whisper-1",  // Use correct OpenAI Whisper model
       });
-      console.log("OpenAI transcription successful, length:", transcript.text?.length || 0);
+      console.log("OpenAI transcription successful, transcript length:", transcript.text?.length || 0);
+      if (transcript.text) {
+        console.log("Transcript preview:", transcript.text.substring(0, 100));
+      }
     } catch (openaiErr) {
+      console.error("OpenAI transcription error:", openaiErr.message);
+      console.error("OpenAI error status:", openaiErr.status);
+      console.error("OpenAI error code:", openaiErr.code);
+      
       // Clean up temp files before returning error
       if (req.file && req.file.path) {
         fs.unlink(req.file.path, () => {});
@@ -305,11 +369,12 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
         fs.unlink(wavPath, () => {});
       }
       
-      // If OpenAI returns 400, return 400 status
+      // If OpenAI returns 400, return 400 status with clear error
       if (openaiErr.status === 400 || openaiErr.code === 400 || (openaiErr.message && openaiErr.message.includes("400"))) {
         return res.status(400).json({ 
           error: "stt_failed", 
-          details: openaiErr.message || "OpenAI transcription failed"
+          details: openaiErr.message || "OpenAI transcription failed - unsupported file format",
+          mimetype: mimetype
         });
       }
       
@@ -328,6 +393,7 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
       fs.unlink(wavPath, () => {});
     }
 
+    console.log("STT Request completed successfully");
     return res.json({
       transcript: transcript.text || "",
     });
