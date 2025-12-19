@@ -7,11 +7,21 @@ import { fileURLToPath } from "url";
 import OpenAI from "openai";
 import { toFile } from "openai/uploads";
 import { rateLimiter } from "../middleware/rateLimiter.js";
+import ffmpeg from "fluent-ffmpeg";
+import ffmpegStatic from "ffmpeg-static";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const router = express.Router();
+
+// Set ffmpeg path from ffmpeg-static (works on Railway without system ffmpeg)
+if (ffmpegStatic) {
+  ffmpeg.setFfmpegPath(ffmpegStatic);
+  console.log("FFmpeg path set to:", ffmpegStatic);
+} else {
+  console.warn("⚠️ ffmpeg-static not found. WebM conversion may fail.");
+}
 
 // Initialize OpenAI - handle missing env var gracefully (don't crash on boot)
 if (!process.env.OPENAI_API_KEY) {
@@ -76,6 +86,39 @@ const getFilenameWithExtension = (mimetype) => {
   }
   // Fallback
   return "audio";
+};
+
+// Helper function to check if file is webm
+const isWebmFile = (mimetype, originalname) => {
+  return mimetype === "audio/webm" || 
+         mimetype === "video/webm" ||
+         (originalname && originalname.toLowerCase().endsWith(".webm"));
+};
+
+// Helper function to convert webm to wav using ffmpeg
+const convertWebmToWav = (inputPath, outputPath) => {
+  return new Promise((resolve, reject) => {
+    console.log("Converting WebM to WAV:", inputPath, "->", outputPath);
+    ffmpeg(inputPath)
+      .toFormat("wav")
+      .audioCodec("pcm_s16le")
+      .audioFrequency(16000)
+      .on("start", (commandLine) => {
+        console.log("FFmpeg command:", commandLine);
+      })
+      .on("progress", (progress) => {
+        console.log("FFmpeg progress:", JSON.stringify(progress));
+      })
+      .on("end", () => {
+        console.log("FFmpeg conversion completed successfully");
+        resolve();
+      })
+      .on("error", (err) => {
+        console.error("FFmpeg conversion error:", err);
+        reject(err);
+      })
+      .save(outputPath);
+  });
 };
 
 // Multer error handler middleware - must be before route handlers
@@ -224,11 +267,45 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
       });
     }
 
-    // Normalize mimetype for OpenAI
-    const normalizedMimetype = normalizeMimetypeForOpenAI(req.file.mimetype);
+    // Check if file is webm and needs conversion
+    const needsConversion = isWebmFile(req.file.mimetype, req.file.originalname);
+    let fileToTranscribe = req.file.path;
+    let wavFilePath = null;
+    let shouldDeleteWav = false;
+
+    if (needsConversion) {
+      console.log("WebM file detected, converting to WAV before transcription");
+      // Generate WAV output path
+      wavFilePath = path.join(tmpDir, `${path.basename(req.file.path)}.wav`);
+      shouldDeleteWav = true;
+      // Store on request for error handler cleanup
+      req.wavFilePath = wavFilePath;
+      
+      // Convert webm to wav
+      await convertWebmToWav(req.file.path, wavFilePath);
+      
+      // Verify WAV file was created
+      if (!fs.existsSync(wavFilePath)) {
+        console.error("STT ERROR: WAV conversion failed - output file not found");
+        fs.unlink(req.file.path, () => {});
+        return res.status(500).json({ 
+          error: "conversion_failed", 
+          details: "Failed to convert WebM to WAV" 
+        });
+      }
+      
+      const wavStats = fs.statSync(wavFilePath);
+      console.log("WAV file created, size:", wavStats.size, "bytes");
+      
+      // Use WAV file for transcription
+      fileToTranscribe = wavFilePath;
+    }
+
+    // Normalize mimetype for OpenAI (use audio/wav if converted)
+    const normalizedMimetype = needsConversion ? "audio/wav" : normalizeMimetypeForOpenAI(req.file.mimetype);
     
     // Determine filename with extension based on normalized mimetype
-    const filename = getFilenameWithExtension(normalizedMimetype);
+    const filename = needsConversion ? "audio.wav" : getFilenameWithExtension(normalizedMimetype);
 
     // Forensic logging right before calling OpenAI
     console.log("=== STT FORENSICS ===");
@@ -236,14 +313,18 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     console.log("req.file.mimetype:", req.file.mimetype);
     console.log("req.file.originalname:", req.file.originalname);
     console.log("req.file.path:", req.file.path);
+    if (needsConversion) {
+      console.log("Converted WAV path:", wavFilePath);
+      console.log("Converted WAV size:", fs.statSync(wavFilePath).size);
+    }
     
     // Read first 32 bytes and log as hex (magic bytes)
-    const head = fs.readFileSync(req.file.path).subarray(0, 32);
+    const head = fs.readFileSync(fileToTranscribe).subarray(0, 32);
     console.log("HEAD_HEX", Buffer.from(head).toString("hex"));
     console.log("====================");
 
     // Read file and create OpenAI File using toFile helper
-    const fileBuffer = fs.readFileSync(req.file.path);
+    const fileBuffer = fs.readFileSync(fileToTranscribe);
     const openaiFile = await toFile(fileBuffer, filename, {
       type: normalizedMimetype,
     });
@@ -255,7 +336,13 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     });
 
     console.log("Transcription successful, length:", transcript.text?.length || 0);
+    
+    // Clean up temp files
     fs.unlink(req.file.path, () => {});
+    if (shouldDeleteWav && wavFilePath && fs.existsSync(wavFilePath)) {
+      fs.unlink(wavFilePath, () => {});
+      console.log("Cleaned up converted WAV file");
+    }
 
     return res.json({
       transcript: transcript.text || "",
@@ -273,6 +360,12 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     // Clean up uploaded file if present
     if (req.file) {
       fs.unlink(req.file.path, () => {});
+    }
+    
+    // Clean up WAV file if conversion was attempted
+    if (req.wavFilePath && fs.existsSync(req.wavFilePath)) {
+      fs.unlink(req.wavFilePath, () => {});
+      console.log("Cleaned up WAV file in error handler");
     }
     
     // If OpenAI throws 400, return that 400 with proper error format
