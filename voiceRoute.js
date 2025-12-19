@@ -1,13 +1,12 @@
 // jobspeak-backend/voiceRoute.js
 import express from "express";
 import fetch from "node-fetch";
-import { requireUsageAllowance } from "./middleware/usageLimit.js";
+import { validateUserKey } from "./middleware/validateUserKey.js";
 
 const router = express.Router();
 
-// Voice generation is a billable action - apply usage allowance middleware
-// This also validates userKey (returns 400 if missing)
-router.post("/generate", requireUsageAllowance, async (req, res) => {
+// Voice generation route - validates userKey (returns 400 if missing)
+router.post("/generate", validateUserKey, async (req, res) => {
   try {
     const { text, improvedAnswer } = req.body;
 
