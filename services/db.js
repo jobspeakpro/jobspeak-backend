@@ -72,6 +72,16 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_webhook_eventId ON webhook_events(eventId);
   CREATE INDEX IF NOT EXISTS idx_webhook_subscriptionId ON webhook_events(subscriptionId);
+
+  CREATE TABLE IF NOT EXISTS tts_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userKey TEXT NOT NULL,
+    date TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(userKey, date)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_tts_userKey_date ON tts_usage(userKey, date);
 `);
 
 export const saveSession = (userKey, transcript, aiResponse, score = null, idempotencyKey = null) => {
@@ -301,6 +311,39 @@ export const recordWebhookEvent = (eventId, eventType, subscriptionId = null, us
   
   const processedAt = new Date().toISOString();
   stmt.run(eventId, eventType, processedAt, subscriptionId, userKey);
+};
+
+// TTS usage tracking functions
+export const getTodayTTSCount = (userKey) => {
+  // Get today's date in UTC (YYYY-MM-DD) - resets at midnight UTC
+  const todayUTC = getTodayUTC();
+  
+  // Query TTS usage for today
+  const stmt = db.prepare(`
+    SELECT count FROM tts_usage
+    WHERE userKey = ? AND date = ?
+  `);
+  
+  const row = stmt.get(userKey, todayUTC);
+  return row ? row.count : 0;
+};
+
+export const incrementTodayTTSCount = (userKey) => {
+  // Get today's date in UTC (YYYY-MM-DD)
+  const todayUTC = getTodayUTC();
+  
+  // Insert or update: increment count for today
+  const stmt = db.prepare(`
+    INSERT INTO tts_usage (userKey, date, count)
+    VALUES (?, ?, 1)
+    ON CONFLICT(userKey, date) DO UPDATE SET
+      count = count + 1
+  `);
+  
+  stmt.run(userKey, todayUTC);
+  
+  // Return the new count
+  return getTodayTTSCount(userKey);
 };
 
 export default db;
