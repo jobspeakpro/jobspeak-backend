@@ -98,19 +98,11 @@ const isWebmFile = (mimetype, originalname) => {
 // Helper function to convert webm to wav using ffmpeg
 const convertWebmToWav = (inputPath, outputPath) => {
   return new Promise((resolve, reject) => {
-    console.log("Converting WebM to WAV:", inputPath, "->", outputPath);
     ffmpeg(inputPath)
       .toFormat("wav")
       .audioCodec("pcm_s16le")
       .audioFrequency(16000)
-      .on("start", (commandLine) => {
-        console.log("FFmpeg command:", commandLine);
-      })
-      .on("progress", (progress) => {
-        console.log("FFmpeg progress:", JSON.stringify(progress));
-      })
       .on("end", () => {
-        console.log("FFmpeg conversion completed successfully");
         resolve();
       })
       .on("error", (err) => {
@@ -272,33 +264,47 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     let fileToTranscribe = req.file.path;
     let wavFilePath = null;
     let shouldDeleteWav = false;
+    let fileTypeSent = needsConversion ? "webm" : (req.file.mimetype?.includes("wav") ? "wav" : "original"); // Track which file type was sent to OpenAI
 
     if (needsConversion) {
-      console.log("WebM file detected, converting to WAV before transcription");
+      console.log("STT: converting webm->wav");
       // Generate WAV output path
-      wavFilePath = path.join(tmpDir, `${path.basename(req.file.path)}.wav`);
+      wavFilePath = `${req.file.path}.wav`;
       shouldDeleteWav = true;
       // Store on request for error handler cleanup
       req.wavFilePath = wavFilePath;
       
-      // Convert webm to wav
-      await convertWebmToWav(req.file.path, wavFilePath);
-      
-      // Verify WAV file was created
-      if (!fs.existsSync(wavFilePath)) {
-        console.error("STT ERROR: WAV conversion failed - output file not found");
-        fs.unlink(req.file.path, () => {});
+      try {
+        // Convert webm to wav
+        await convertWebmToWav(req.file.path, wavFilePath);
+        
+        // Verify WAV file was created
+        if (!fs.existsSync(wavFilePath)) {
+          console.error("STT ERROR: WAV conversion failed - output file not found");
+          fs.unlink(req.file.path, () => {});
+          return res.status(500).json({ 
+            error: "stt_conversion_failed", 
+            details: "Failed to convert WebM to WAV - output file not found"
+          });
+        }
+        
+        const wavStats = fs.statSync(wavFilePath);
+        console.log("STT: conversion complete, size=" + wavStats.size);
+        
+        // Use WAV file for transcription
+        fileToTranscribe = wavFilePath;
+        fileTypeSent = "wav";
+      } catch (conversionErr) {
+        console.error("STT ERROR: Conversion failed:", conversionErr.message);
+        // Clean up original file
+        if (req.file && req.file.path) {
+          fs.unlink(req.file.path, () => {});
+        }
         return res.status(500).json({ 
-          error: "conversion_failed", 
-          details: "Failed to convert WebM to WAV" 
+          error: "stt_conversion_failed", 
+          details: conversionErr.message || "Failed to convert WebM to WAV"
         });
       }
-      
-      const wavStats = fs.statSync(wavFilePath);
-      console.log("WAV file created, size:", wavStats.size, "bytes");
-      
-      // Use WAV file for transcription
-      fileToTranscribe = wavFilePath;
     }
 
     // Normalize mimetype for OpenAI (use audio/wav if converted)
@@ -329,7 +335,7 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
       type: normalizedMimetype,
     });
 
-    console.log("Calling OpenAI transcription API with filename:", filename, "type:", normalizedMimetype);
+    console.log("Calling OpenAI transcription API with filename:", filename, "type:", normalizedMimetype, "fileType:", fileTypeSent);
     const transcript = await openai.audio.transcriptions.create({
       file: openaiFile,
       model: "gpt-4o-mini-transcribe",
@@ -368,12 +374,16 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
       console.log("Cleaned up WAV file in error handler");
     }
     
+    // Determine which file type was sent to OpenAI
+    const fileTypeSent = req.wavFilePath ? "wav" : (req.file?.mimetype?.includes("webm") ? "webm" : "unknown");
+    
     // If OpenAI throws 400, return that 400 with proper error format
     if (err.status === 400 || err.code === 400 || (err.message && err.message.includes("400"))) {
       return res.status(400).json({ 
         error: "openai_stt_failed", 
         message: err.message || "Unknown error occurred",
-        code: err.code || "400"
+        code: err.code || "400",
+        fileType: fileTypeSent
       });
     }
     
@@ -381,7 +391,8 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     return res.status(500).json({ 
       error: "stt_failed", 
       details: err.message || "Unknown error occurred",
-      name: err.name || "Error"
+      name: err.name || "Error",
+      fileType: fileTypeSent
     });
   }
 });
