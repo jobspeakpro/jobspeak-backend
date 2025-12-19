@@ -18,9 +18,11 @@ const router = express.Router();
 // Set ffmpeg path from ffmpeg-static (works on Railway without system ffmpeg)
 if (ffmpegStatic) {
   ffmpeg.setFfmpegPath(ffmpegStatic);
-  console.log("FFmpeg path set to:", ffmpegStatic);
+  console.log("[STT] Using ffmpeg path:", ffmpegStatic);
+  console.log("[STT] FFmpeg path verified:", fs.existsSync(ffmpegStatic) ? "EXISTS" : "NOT FOUND");
 } else {
-  console.warn("⚠️ ffmpeg-static not found. WebM conversion may fail.");
+  console.error("[STT] ERROR: ffmpeg-static not found. WebM conversion will fail.");
+  console.error("[STT] Check package.json - ffmpeg-static must be in dependencies (not devDependencies)");
 }
 
 // Initialize OpenAI - handle missing env var gracefully (don't crash on boot)
@@ -370,15 +372,25 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     }
 
     // Read audio file and create OpenAI File using toFile helper
+    // CRITICAL: When transcoding, we MUST use the WAV file, not the original
     console.log(`[STT] Reading audio file: ${audioFilePath}`);
-    const fileBuffer = fs.readFileSync(audioFilePath);
-    const filename = requiresTranscoding ? "audio.wav" : getFilenameWithExtension(mimetype);
-    const fileType = requiresTranscoding ? "audio/wav" : mimetype;
+    console.log(`[STT] File exists: ${fs.existsSync(audioFilePath) ? "YES" : "NO"}`);
     
-    console.log(`[STT] Creating OpenAI file object`);
-    console.log(`[STT]   filename: ${filename}`);
-    console.log(`[STT]   type: ${fileType}`);
-    console.log(`[STT]   buffer size: ${fileBuffer.length} bytes`);
+    const fileBuffer = fs.readFileSync(audioFilePath);
+    
+    // FORCE filename and type when transcoding - OpenAI requires .wav extension and audio/wav type
+    let filename, fileType;
+    if (requiresTranscoding) {
+      filename = "audio.wav";
+      fileType = "audio/wav";
+      console.log(`[STT] FORCED: Using transcoded WAV file`);
+    } else {
+      filename = getFilenameWithExtension(mimetype);
+      fileType = mimetype;
+      console.log(`[STT] Using original file (no transcoding needed)`);
+    }
+    
+    console.log(`[STT] Final file sent to OpenAI: path=${audioFilePath}, name=${filename}, type=${fileType}, size=${fileBuffer.length} bytes`);
     
     const openaiFile = await toFile(fileBuffer, filename, {
       type: fileType,
