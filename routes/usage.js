@@ -1,23 +1,25 @@
 // jobspeak-backend/routes/usage.js
 import express from "express";
-import { getSubscription, getTodaySTTCount } from "../services/db.js";
+import { getSubscription } from "../services/db.js";
+import { getUsage } from "../services/sttUsageStore.js";
+import { resolveUserKey } from "../middleware/resolveUserKey.js";
 
 const router = express.Router();
 
-const FREE_DAILY_LIMIT = 3;
-
-// GET /api/usage/today?userKey=
+// GET /api/usage/today
+// Accepts userKey from query, header, or body
 router.get("/usage/today", async (req, res) => {
   try {
-    const { userKey } = req.query;
+    // Resolve userKey from multiple sources
+    const userKey = resolveUserKey(req);
 
     // Validate userKey
-    if (!userKey || typeof userKey !== "string" || userKey.trim().length === 0) {
-      return res.status(400).json({ error: "userKey is required and must be a non-empty string" });
+    if (!userKey) {
+      return res.status(400).json({ error: "Missing userKey" });
     }
 
     // Get subscription and determine Pro status
-    const subscription = getSubscription(userKey.trim());
+    const subscription = getSubscription(userKey);
     
     // Determine if user is Pro (check expiration)
     let isPro = false;
@@ -42,26 +44,30 @@ router.get("/usage/today", async (req, res) => {
     // Pro users have unlimited access
     if (isPro) {
       return res.json({
-        used: 0,
-        limit: -1, // -1 means unlimited
-        remaining: -1,
-        isPro: true,
+        usage: {
+          used: 0,
+          limit: -1, // -1 means unlimited
+          remaining: -1,
+          blocked: false,
+        },
       });
     }
 
     // Free users: return today's STT attempts (speaking attempts)
     // Only successful STT transcriptions count toward the daily limit
-    const used = getTodaySTTCount(userKey.trim());
-    const remaining = Math.max(0, FREE_DAILY_LIMIT - used);
+    const usage = getUsage(userKey);
     
     // Log usage query for debugging
-    console.log(`[USAGE] Query - userKey: ${userKey.trim()}, sttAttemptsUsed: ${used}, sttLimit: ${FREE_DAILY_LIMIT}, remaining: ${remaining}`);
+    console.log(`[USAGE] Query - userKey: ${userKey}, used: ${usage.used}, limit: ${usage.limit}, route: /api/usage/today`);
 
+    // Return consistent JSON shape
     return res.json({
-      used,
-      limit: FREE_DAILY_LIMIT,
-      remaining,
-      isPro: false,
+      usage: {
+        used: usage.used,
+        limit: usage.limit,
+        remaining: usage.remaining,
+        blocked: usage.blocked,
+      },
     });
   } catch (error) {
     console.error("Error fetching usage:", error);

@@ -7,18 +7,20 @@ import { fileURLToPath } from "url";
 import OpenAI from "openai";
 import { toFile } from "openai/uploads";
 import { rateLimiter } from "../middleware/rateLimiter.js";
-import { getSubscription, getTodaySTTCount, incrementTodaySTTCount } from "../services/db.js";
+import { getSubscription } from "../services/db.js";
+import { getUsage, recordAttempt, isBlocked } from "../services/sttUsageStore.js";
+import { resolveUserKey } from "../middleware/resolveUserKey.js";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegStatic from "ffmpeg-static";
+import crypto from "crypto";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 
-// Daily speaking attempt limit for free users
+// Daily speaking attempt limit is now managed by sttUsageStore.js (LIMIT = 3)
 // Only successful STT transcriptions consume attempts (not /voice/generate or /ai/micro-demo)
-const FREE_DAILY_STT_LIMIT = 3;
 
 // Set ffmpeg path from ffmpeg-static (works on Railway without system ffmpeg)
 let ffmpegPath = null;
@@ -218,22 +220,22 @@ const handleMulterError = (err, req, res, next) => {
 };
 
 // Middleware: validate userKey (required for STT)
+// Resolves userKey from header, body, query, or form-data
 const validateUserKey = (req, res, next) => {
-  // userKey is available in req.body after multer processes form-data
-  // If body is not parsed (empty request), req.body might be undefined
-  const userKey = req.body?.userKey;
+  // Resolve userKey from multiple sources
+  const userKey = resolveUserKey(req);
   
   // Validate userKey is present
-  if (!userKey || typeof userKey !== "string" || userKey.trim().length === 0) {
+  if (!userKey) {
     // Clean up uploaded file if present
     if (req.file) {
       fs.unlink(req.file.path, () => {});
     }
-    return res.status(400).json({ error: "userKey is required and must be a non-empty string" });
+    return res.status(400).json({ error: "Missing userKey" });
   }
 
   // Attach to request for use in route handlers
-  req.userKey = userKey.trim();
+  req.userKey = userKey;
   next();
 };
 
@@ -285,9 +287,21 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
       return res.status(400).json({ error: "No audio file uploaded" });
     }
 
-    // Check daily limit for free users BEFORE processing
-    // Only successful transcriptions will increment the count (see below)
+    // Resolve userKey (already validated by middleware)
     const userKey = req.userKey;
+    
+    // Resolve attemptId from multiple sources, generate UUID if missing
+    // Note: Multer puts form-data fields directly in req.body, not req.body.fields
+    let attemptId = req.header('x-attempt-id') || req.body?.attemptId || req.query?.attemptId;
+    if (!attemptId || typeof attemptId !== 'string' || attemptId.trim().length === 0) {
+      attemptId = crypto.randomUUID();
+      console.log(`[STT] Generated attemptId: ${attemptId} (missing from request)`);
+    } else {
+      attemptId = attemptId.trim();
+      console.log(`[STT] Using provided attemptId: ${attemptId}`);
+    }
+
+    // Check subscription status
     const subscription = getSubscription(userKey);
     let isPro = false;
     if (subscription) {
@@ -309,23 +323,29 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     }
 
     // Free users: check daily limit BEFORE processing
-    // Limit check: allow exactly 3 attempts (counts 0, 1, 2 = 3 total attempts)
+    // Only successful transcriptions will increment the count (see below)
     if (!isPro) {
-      const todayCount = getTodaySTTCount(userKey);
+      const usage = getUsage(userKey);
       
       // Log current usage for debugging
-      console.log(`[STT] Usage check - userKey: ${userKey}, sttAttemptsUsed: ${todayCount}, sttLimit: ${FREE_DAILY_STT_LIMIT}, route: /api/stt`);
+      console.log(`[STT] Usage check - userKey: ${userKey}, used: ${usage.used}, limit: ${usage.limit}, route: /api/stt`);
       
-      // Block if user has already used all 3 attempts (count >= limit)
-      if (todayCount >= FREE_DAILY_STT_LIMIT) {
-        console.log(`[STT] BLOCKED - Daily limit reached: ${todayCount}/${FREE_DAILY_STT_LIMIT} attempts used`);
-        return res.status(402).json({
-          error: "Daily limit of 3 speaking attempts reached. Upgrade to Pro for unlimited access.",
+      // Block if already at limit (used >= 3)
+      if (usage.blocked) {
+        console.log(`[STT] BLOCKED - Daily limit reached: ${usage.used}/${usage.limit} attempts used`);
+        return res.status(429).json({
+          message: "Daily limit of 3 speaking attempts reached. Upgrade to Pro for unlimited access.",
           upgrade: true,
+          usage: {
+            used: usage.used,
+            limit: usage.limit,
+            remaining: usage.remaining,
+            blocked: usage.blocked,
+          },
         });
       }
       
-      console.log(`[STT] ALLOWED - Attempt ${todayCount + 1} of ${FREE_DAILY_STT_LIMIT} (will increment on success)`);
+      console.log(`[STT] ALLOWED - Current usage: ${usage.used}/${usage.limit}, will allow this attempt (increment on success only)`);
     }
 
     // Log original file metadata
@@ -494,21 +514,44 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
       });
     }
 
-    // Only increment daily attempt count on successful transcription
+    // Only increment daily attempt count on successful transcription (200 + transcript exists)
     // Failed requests (errors above) do NOT consume attempts
     // CRITICAL: This is the ONLY place where STT attempts are incremented
+    // CRITICAL: Increment happens AFTER successful completion, not before limit check
+    let usage = null;
     if (!isPro && transcript && transcript.text && transcript.text.trim()) {
-      const newCount = incrementTodaySTTCount(userKey);
-      console.log(`[STT] INCREMENTED - Speaking attempts: ${newCount}/${FREE_DAILY_STT_LIMIT} (route: /api/stt, success only)`);
+      // Record attempt with idempotency
+      usage = recordAttempt(userKey, attemptId);
+      
+      if (usage.wasNew) {
+        console.log(`[STT] INCREMENTED - userKey: ${userKey}, attemptId: ${attemptId}, used: ${usage.used}/${usage.limit}, route: /api/stt (success only)`);
+      } else {
+        console.log(`[STT] IDEMPOTENT - userKey: ${userKey}, attemptId: ${attemptId}, used: ${usage.used}/${usage.limit}, route: /api/stt (already recorded)`);
+      }
     } else if (!isPro) {
-      console.log(`[STT] NOT INCREMENTED - Transcription failed or empty (route: /api/stt, no attempt consumed)`);
+      usage = getUsage(userKey);
+      console.log(`[STT] NOT INCREMENTED - userKey: ${userKey}, reason: transcription failed or empty, route: /api/stt (no attempt consumed)`);
     }
 
     console.log(`[STT] ========================================`);
     console.log(`[STT] Request completed successfully`);
-    return res.json({
+    
+    // Build response with usage info
+    const response = {
       transcript: transcript.text || "",
-    });
+    };
+    
+    // Include usage for free users
+    if (!isPro && usage) {
+      response.usage = {
+        used: usage.used,
+        limit: usage.limit,
+        remaining: usage.remaining,
+        blocked: usage.blocked,
+      };
+    }
+    
+    return res.json(response);
   } catch (err) {
     // Log full error stack
     console.error("=== STT ERROR (FULL STACK) ===");
