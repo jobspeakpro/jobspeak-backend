@@ -3,7 +3,6 @@ import express from "express";
 import dotenv from "dotenv";
 import crypto from "crypto";
 import { askGPT } from "../services/openaiService.js";
-import { requireUsageAllowance } from "../middleware/usageLimit.js";
 import { rateLimiter } from "../middleware/rateLimiter.js";
 import { saveSessionWithIdempotency } from "../services/db.js";
 
@@ -39,10 +38,19 @@ function simpleImprove(text) {
  *   improved: string,
  *   message: string
  * }
+ * 
+ * CRITICAL: This endpoint does NOT consume daily speaking attempts.
+ * Only successful STT transcriptions (/api/stt) consume daily attempts.
+ * This endpoint has its own separate rate limit (30/min) but NO usage limit.
  */
 // Rate limiting: 30 requests per minute per userKey (or IP if userKey not available)
-router.post("/micro-demo", rateLimiter(30, 60000, null, "ai:"), requireUsageAllowance, async (req, res) => {
+router.post("/micro-demo", rateLimiter(30, 60000, null, "ai:"), async (req, res) => {
   const { text, userKey } = req.body;
+  
+  // Log that this route does NOT check or consume STT attempts
+  if (userKey) {
+    console.log(`[AI/micro-demo] Request received - userKey: ${userKey}, route: /ai/micro-demo (NO STT attempt check/consumption)`);
+  }
 
   // Validate text input size (max 5000 characters)
   if (!text || !text.trim()) {

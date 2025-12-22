@@ -82,6 +82,16 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_tts_userKey_date ON tts_usage(userKey, date);
+
+  CREATE TABLE IF NOT EXISTS stt_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userKey TEXT NOT NULL,
+    date TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(userKey, date)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_stt_userKey_date ON stt_usage(userKey, date);
 `);
 
 export const saveSession = (userKey, transcript, aiResponse, score = null, idempotencyKey = null) => {
@@ -344,6 +354,46 @@ export const incrementTodayTTSCount = (userKey) => {
   
   // Return the new count
   return getTodayTTSCount(userKey);
+};
+
+// STT usage tracking functions
+// 
+// Daily speaking attempt counting rule:
+// - ONLY successful POST /api/stt transcriptions consume 1 daily attempt
+// - Failed STT requests do NOT consume attempts
+// - /voice/generate does NOT consume speaking attempts (has separate TTS limit)
+// - /ai/micro-demo does NOT consume speaking attempts
+// - Resume endpoints do NOT consume speaking attempts
+export const getTodaySTTCount = (userKey) => {
+  // Get today's date in UTC (YYYY-MM-DD) - resets at midnight UTC
+  const todayUTC = getTodayUTC();
+  
+  // Query STT usage for today
+  const stmt = db.prepare(`
+    SELECT count FROM stt_usage
+    WHERE userKey = ? AND date = ?
+  `);
+  
+  const row = stmt.get(userKey, todayUTC);
+  return row ? row.count : 0;
+};
+
+export const incrementTodaySTTCount = (userKey) => {
+  // Get today's date in UTC (YYYY-MM-DD)
+  const todayUTC = getTodayUTC();
+  
+  // Insert or update: increment count for today
+  const stmt = db.prepare(`
+    INSERT INTO stt_usage (userKey, date, count)
+    VALUES (?, ?, 1)
+    ON CONFLICT(userKey, date) DO UPDATE SET
+      count = count + 1
+  `);
+  
+  stmt.run(userKey, todayUTC);
+  
+  // Return the new count
+  return getTodaySTTCount(userKey);
 };
 
 export default db;

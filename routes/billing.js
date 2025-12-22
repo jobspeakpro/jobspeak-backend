@@ -32,29 +32,43 @@ router.post("/billing/create-checkout-session", async (req, res) => {
       return res.status(400).json({ error: "priceType must be 'monthly' or 'annual'" });
     }
 
-    // Validate env vars - no hardcoded fallbacks
+    // Validate all required environment variables upfront - return 400 with clear messages
+    const missingVars = [];
+    
     if (!process.env.STRIPE_SECRET_KEY) {
-      console.error("❌ Missing STRIPE_SECRET_KEY in env");
-      return res.status(500).json({ error: "Backend missing STRIPE_SECRET_KEY" });
+      missingVars.push("STRIPE_SECRET_KEY");
+    }
+    
+    if (!process.env.STRIPE_PRICE_ID_MONTHLY) {
+      missingVars.push("STRIPE_PRICE_ID_MONTHLY");
+    }
+    
+    if (!process.env.STRIPE_PRICE_ID_ANNUAL) {
+      missingVars.push("STRIPE_PRICE_ID_ANNUAL");
+    }
+    
+    if (!process.env.FRONTEND_URL) {
+      missingVars.push("FRONTEND_URL");
+    }
+    
+    if (missingVars.length > 0) {
+      console.error("❌ Missing required environment variables:", missingVars.join(", "));
+      return res.status(400).json({ 
+        error: "Missing required environment variables",
+        missing: missingVars,
+        message: `The following environment variables are required but not set: ${missingVars.join(", ")}`
+      });
     }
 
+    // Verify Stripe is initialized (should be true if STRIPE_SECRET_KEY is set)
     if (!stripe) {
-      return res.status(500).json({ error: "Stripe not initialized" });
+      console.error("❌ Stripe not initialized despite STRIPE_SECRET_KEY being set");
+      return res.status(500).json({ error: "Stripe initialization failed" });
     }
 
     const MONTHLY_PRICE_ID = process.env.STRIPE_PRICE_ID_MONTHLY;
     const ANNUAL_PRICE_ID = process.env.STRIPE_PRICE_ID_ANNUAL;
-
-    if (!MONTHLY_PRICE_ID || !ANNUAL_PRICE_ID) {
-      console.error("❌ Missing Stripe price IDs in env");
-      return res.status(500).json({ error: "Stripe price IDs not configured" });
-    }
-
     const FRONTEND_URL = process.env.FRONTEND_URL;
-    if (!FRONTEND_URL) {
-      console.error("❌ Missing FRONTEND_URL in env");
-      return res.status(500).json({ error: "FRONTEND_URL not configured" });
-    }
 
     const priceId = priceType === "annual" ? ANNUAL_PRICE_ID : MONTHLY_PRICE_ID;
 
@@ -76,7 +90,7 @@ router.post("/billing/create-checkout-session", async (req, res) => {
       });
     }
 
-    // Use env var only, no hardcoded fallback
+    // Build success and cancel URLs using FRONTEND_URL
     const successUrl = `${FRONTEND_URL}?success=true`;
     const cancelUrl = `${FRONTEND_URL}?canceled=true`;
 
@@ -96,7 +110,9 @@ router.post("/billing/create-checkout-session", async (req, res) => {
     });
 
     console.log("✅ Stripe checkout session created:", session.id, "for userKey:", userKey.trim());
-    res.json({ url: session.url });
+    
+    // Always return { url } on success
+    return res.json({ url: session.url });
   } catch (err) {
     console.error("❌ Stripe checkout session error:", err?.message || err);
     res.status(500).json({

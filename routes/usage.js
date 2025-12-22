@@ -1,6 +1,6 @@
 // jobspeak-backend/routes/usage.js
 import express from "express";
-import { getSubscription, getTodaySessionCount } from "../services/db.js";
+import { getSubscription, getTodaySTTCount } from "../services/db.js";
 
 const router = express.Router();
 
@@ -49,9 +49,13 @@ router.get("/usage/today", async (req, res) => {
       });
     }
 
-    // Free users: return today's usage
-    const used = getTodaySessionCount(userKey.trim());
+    // Free users: return today's STT attempts (speaking attempts)
+    // Only successful STT transcriptions count toward the daily limit
+    const used = getTodaySTTCount(userKey.trim());
     const remaining = Math.max(0, FREE_DAILY_LIMIT - used);
+    
+    // Log usage query for debugging
+    console.log(`[USAGE] Query - userKey: ${userKey.trim()}, sttAttemptsUsed: ${used}, sttLimit: ${FREE_DAILY_LIMIT}, remaining: ${remaining}`);
 
     return res.json({
       used,

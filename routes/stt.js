@@ -7,6 +7,7 @@ import { fileURLToPath } from "url";
 import OpenAI from "openai";
 import { toFile } from "openai/uploads";
 import { rateLimiter } from "../middleware/rateLimiter.js";
+import { getSubscription, getTodaySTTCount, incrementTodaySTTCount } from "../services/db.js";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegStatic from "ffmpeg-static";
 
@@ -14,6 +15,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const router = express.Router();
+
+// Daily speaking attempt limit for free users
+// Only successful STT transcriptions consume attempts (not /voice/generate or /ai/micro-demo)
+const FREE_DAILY_STT_LIMIT = 3;
 
 // Set ffmpeg path from ffmpeg-static (works on Railway without system ffmpeg)
 let ffmpegPath = null;
@@ -263,6 +268,13 @@ const uploadAudio = (req, res, next) => {
 // Rate limiting: 20 requests per minute per userKey (or IP if userKey not available)
 // Note: userKey comes from form-data, so rate limiting happens after multer
 // Order: multer -> validateUserKey -> rateLimiter -> handler
+// 
+// Daily speaking attempt limit rule:
+// - ONLY successful POST /api/stt transcriptions consume 1 daily attempt
+// - Failed STT requests do NOT consume attempts (only count on success)
+// - /voice/generate does NOT consume speaking attempts (has separate TTS limit)
+// - /ai/micro-demo does NOT consume speaking attempts
+// - Resume endpoints do NOT consume speaking attempts
 router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter(20, 60000, null, "stt:"), async (req, res) => {
   // Track files for cleanup
   const originalFilePath = req.file?.path;
@@ -271,6 +283,49 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
   try {
     if (!req.file) {
       return res.status(400).json({ error: "No audio file uploaded" });
+    }
+
+    // Check daily limit for free users BEFORE processing
+    // Only successful transcriptions will increment the count (see below)
+    const userKey = req.userKey;
+    const subscription = getSubscription(userKey);
+    let isPro = false;
+    if (subscription) {
+      isPro = subscription.isPro;
+      
+      // Check if subscription is expired
+      if (subscription.currentPeriodEnd) {
+        const periodEnd = new Date(subscription.currentPeriodEnd);
+        const now = new Date();
+        if (periodEnd < now) {
+          isPro = false;
+        }
+      }
+      
+      // Ensure isPro matches status
+      if (subscription.status && subscription.status !== "active" && subscription.status !== "trialing") {
+        isPro = false;
+      }
+    }
+
+    // Free users: check daily limit BEFORE processing
+    // Limit check: allow exactly 3 attempts (counts 0, 1, 2 = 3 total attempts)
+    if (!isPro) {
+      const todayCount = getTodaySTTCount(userKey);
+      
+      // Log current usage for debugging
+      console.log(`[STT] Usage check - userKey: ${userKey}, sttAttemptsUsed: ${todayCount}, sttLimit: ${FREE_DAILY_STT_LIMIT}, route: /api/stt`);
+      
+      // Block if user has already used all 3 attempts (count >= limit)
+      if (todayCount >= FREE_DAILY_STT_LIMIT) {
+        console.log(`[STT] BLOCKED - Daily limit reached: ${todayCount}/${FREE_DAILY_STT_LIMIT} attempts used`);
+        return res.status(402).json({
+          error: "Daily limit of 3 speaking attempts reached. Upgrade to Pro for unlimited access.",
+          upgrade: true,
+        });
+      }
+      
+      console.log(`[STT] ALLOWED - Attempt ${todayCount + 1} of ${FREE_DAILY_STT_LIMIT} (will increment on success)`);
     }
 
     // Log original file metadata
@@ -437,6 +492,16 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
         error: "stt_failed", 
         details: openaiErr.message || "OpenAI transcription failed"
       });
+    }
+
+    // Only increment daily attempt count on successful transcription
+    // Failed requests (errors above) do NOT consume attempts
+    // CRITICAL: This is the ONLY place where STT attempts are incremented
+    if (!isPro && transcript && transcript.text && transcript.text.trim()) {
+      const newCount = incrementTodaySTTCount(userKey);
+      console.log(`[STT] INCREMENTED - Speaking attempts: ${newCount}/${FREE_DAILY_STT_LIMIT} (route: /api/stt, success only)`);
+    } else if (!isPro) {
+      console.log(`[STT] NOT INCREMENTED - Transcription failed or empty (route: /api/stt, no attempt consumed)`);
     }
 
     console.log(`[STT] ========================================`);
