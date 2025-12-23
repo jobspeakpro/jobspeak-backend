@@ -11,12 +11,27 @@ const FREE_DAILY_TTS_LIMIT = 3;
 // Voice generation route - validates userKey (returns 400 if missing)
 router.post("/generate", validateUserKey, async (req, res) => {
   try {
-    const { text, improvedAnswer } = req.body;
     const userKey = req.userKey; // Set by validateUserKey middleware
 
-    const content = improvedAnswer || text || "";
+    // Extract text from multiple sources (compat with JSON, form-data, query)
+    const textFromBody = req.body?.text;
+    const textFromFields = req.body?.fields?.text;
+    const textFromQuery = req.query?.text;
+    const improvedAnswer = req.body?.improvedAnswer;
+    
+    const content = improvedAnswer || textFromBody || textFromFields || textFromQuery || "";
+    
     if (!content.trim()) {
-      return res.status(400).json({ error: "Missing text to convert to speech." });
+      // Debug logging for 400 errors
+      console.log("[TTS] 400 - Missing text. Debug info:");
+      console.log("  content-type:", req.get("content-type") || "not set");
+      console.log("  req.body keys:", Object.keys(req.body || {}));
+      if (req.body?.fields) {
+        console.log("  req.body.fields keys:", Object.keys(req.body.fields));
+      }
+      console.log("  req.query keys:", Object.keys(req.query || {}));
+      
+      return res.status(400).json({ error: "Missing text" });
     }
 
     // Check subscription status
@@ -104,6 +119,9 @@ router.post("/generate", validateUserKey, async (req, res) => {
     res.setHeader("Content-Type", "audio/mpeg");
     res.setHeader("X-TTS-Remaining", remaining.toString());
     res.setHeader("X-TTS-Limit", FREE_DAILY_TTS_LIMIT.toString());
+    
+    // Log success
+    console.log(`[TTS] ok len=${content.length}`);
     
     res.send(Buffer.from(audioBuffer));
   } catch (err) {
