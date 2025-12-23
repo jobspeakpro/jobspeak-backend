@@ -1,25 +1,22 @@
 // jobspeak-backend/voiceRoute.js
 import express from "express";
 import fetch from "node-fetch";
-import { validateUserKey } from "./middleware/validateUserKey.js";
+import { resolveUserKey } from "./middleware/resolveUserKey.js";
 import { getSubscription, getTodayTTSCount, incrementTodayTTSCount } from "./services/db.js";
 
 const router = express.Router();
 
 const FREE_DAILY_TTS_LIMIT = 3;
 
-// Voice generation route - validates userKey (returns 400 if missing)
-router.post("/generate", validateUserKey, async (req, res) => {
+// Voice generation route - userKey is optional
+router.post("/generate", async (req, res) => {
   try {
-    const userKey = req.userKey; // Set by validateUserKey middleware
-
     // Extract text from multiple sources (compat with JSON, form-data, query)
     const textFromBody = req.body?.text;
     const textFromFields = req.body?.fields?.text;
     const textFromQuery = req.query?.text;
-    const improvedAnswer = req.body?.improvedAnswer;
     
-    const content = improvedAnswer || textFromBody || textFromFields || textFromQuery || "";
+    const content = textFromBody || textFromFields || textFromQuery || "";
     
     if (!content.trim()) {
       // Debug logging for 400 errors
@@ -34,38 +31,43 @@ router.post("/generate", validateUserKey, async (req, res) => {
       return res.status(400).json({ error: "Missing text" });
     }
 
-    // Check subscription status
-    const subscription = getSubscription(userKey);
+    // userKey is optional - only check subscription/limits if present
+    const userKey = resolveUserKey(req);
     let isPro = false;
-    if (subscription) {
-      isPro = subscription.isPro;
-      
-      // Check if subscription is expired
-      if (subscription.currentPeriodEnd) {
-        const periodEnd = new Date(subscription.currentPeriodEnd);
-        const now = new Date();
-        if (periodEnd < now) {
+    
+    if (userKey) {
+      // Check subscription status
+      const subscription = getSubscription(userKey);
+      if (subscription) {
+        isPro = subscription.isPro;
+        
+        // Check if subscription is expired
+        if (subscription.currentPeriodEnd) {
+          const periodEnd = new Date(subscription.currentPeriodEnd);
+          const now = new Date();
+          if (periodEnd < now) {
+            isPro = false;
+          }
+        }
+        
+        // Ensure isPro matches status
+        if (subscription.status && subscription.status !== "active" && subscription.status !== "trialing") {
           isPro = false;
         }
       }
-      
-      // Ensure isPro matches status
-      if (subscription.status && subscription.status !== "active" && subscription.status !== "trialing") {
-        isPro = false;
-      }
-    }
 
-    // Check daily limit for free users
-    if (!isPro) {
-      const todayCount = getTodayTTSCount(userKey);
-      
-      if (todayCount >= FREE_DAILY_TTS_LIMIT) {
-        return res.status(402).json({
-          error: "daily_limit_reached",
-          limit: FREE_DAILY_TTS_LIMIT,
-          remaining: 0,
-          upgrade: true
-        });
+      // Check daily limit for free users
+      if (!isPro) {
+        const todayCount = getTodayTTSCount(userKey);
+        
+        if (todayCount >= FREE_DAILY_TTS_LIMIT) {
+          return res.status(402).json({
+            error: "daily_limit_reached",
+            limit: FREE_DAILY_TTS_LIMIT,
+            remaining: 0,
+            upgrade: true
+          });
+        }
       }
     }
 
@@ -107,8 +109,9 @@ router.post("/generate", validateUserKey, async (req, res) => {
     const audioBuffer = await response.arrayBuffer();
     
     // Calculate remaining count before incrementing (for accurate response)
-    let remaining = -1; // -1 means unlimited (Pro users)
-    if (!isPro) {
+    // Only track usage if userKey is present
+    let remaining = -1; // -1 means unlimited (Pro users or no userKey)
+    if (userKey && !isPro) {
       const currentCount = getTodayTTSCount(userKey);
       // Only increment count after successful audio generation
       incrementTodayTTSCount(userKey);
