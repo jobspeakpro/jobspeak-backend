@@ -22,15 +22,69 @@ const FREE_DAILY_LIMIT = 3;
 // POST /api/billing/create-checkout-session
 router.post("/billing/create-checkout-session", async (req, res) => {
   try {
-    const { userKey, priceType } = req.body;
+    // Resolve userKey from multiple sources (header, body, query, form-data) - optional
+    const userKey = resolveUserKey(req);
 
-    // Validate required fields
-    if (!userKey || typeof userKey !== "string" || userKey.trim().length === 0) {
-      return res.status(400).json({ error: "userKey is required and must be a non-empty string" });
+    // Accept input from JSON body OR query OR form-data
+    // Try to get plan/priceType/priceId/interval from multiple sources
+    const plan = req.body?.plan || req.query?.plan || req.body?.fields?.plan;
+    const priceType = req.body?.priceType || req.query?.priceType || req.body?.fields?.priceType;
+    const priceId = req.body?.priceId || req.query?.priceId || req.body?.fields?.priceId;
+    const interval = req.body?.interval || req.query?.interval || req.body?.fields?.interval;
+
+    // Debug logging BEFORE validation (to help diagnose 400 errors)
+    console.log("[CHECKOUT DEBUG] Request details:", {
+      contentType: req.headers["content-type"],
+      body: req.body,
+      query: req.query,
+      bodyFields: req.body?.fields || null,
+      resolvedUserKey: userKey || null,
+      plan,
+      priceType,
+      priceId,
+      interval,
+    });
+
+    // Determine the billing interval/plan from various input formats
+    // Accept: plan, priceType, interval, or priceId (if priceId is provided, we'll use it directly)
+    let billingInterval = null;
+    
+    if (priceId) {
+      // If priceId is provided directly, we'll use it - no need to determine interval
+      // But we still need to validate it exists
+    } else if (plan === "annual" || priceType === "annual" || interval === "year" || interval === "annual") {
+      billingInterval = "annual";
+    } else if (plan === "monthly" || priceType === "monthly" || interval === "month" || interval === "monthly") {
+      billingInterval = "monthly";
     }
 
-    if (!priceType || (priceType !== "monthly" && priceType !== "annual")) {
-      return res.status(400).json({ error: "priceType must be 'monthly' or 'annual'" });
+    // Validate required fields - require ONLY the minimum needed to create checkout
+    // Need either: priceId OR (plan/priceType/interval that maps to monthly/annual)
+    if (!priceId && !billingInterval) {
+      // Enhanced debug logging on 400 error
+      const debugInfo = {
+        contentType: req.headers["content-type"] || "not set",
+        receivedFields: {
+          body: Object.keys(req.body || {}),
+          query: Object.keys(req.query || {}),
+          bodyFields: req.body?.fields ? Object.keys(req.body.fields) : null,
+          headers: {
+            "x-user-key": req.header("x-user-key") ? "present" : "missing",
+          },
+        },
+        resolvedValues: {
+          plan,
+          priceType,
+          priceId,
+          interval,
+          userKey: userKey || null,
+        },
+      };
+      console.error("[CHECKOUT ERROR] Missing required field: need plan, priceType, interval, or priceId", debugInfo);
+      return res.status(400).json({ 
+        error: "Missing plan, priceType, interval, or priceId",
+        debug: debugInfo,
+      });
     }
 
     // Validate all required environment variables upfront - return 400 with clear messages
@@ -71,46 +125,72 @@ router.post("/billing/create-checkout-session", async (req, res) => {
     const ANNUAL_PRICE_ID = process.env.STRIPE_PRICE_ID_ANNUAL;
     const FRONTEND_URL = process.env.FRONTEND_URL;
 
-    const priceId = priceType === "annual" ? ANNUAL_PRICE_ID : MONTHLY_PRICE_ID;
-
-    // Get or create Stripe customer
-    let customerId;
-    const existingSub = getSubscription(userKey.trim());
-    if (existingSub?.stripeCustomerId) {
-      customerId = existingSub.stripeCustomerId;
+    // Determine the actual priceId to use
+    let finalPriceId;
+    if (priceId) {
+      // Use provided priceId directly
+      finalPriceId = priceId;
     } else {
-      const customer = await stripe.customers.create({
-        metadata: { userKey: userKey.trim() },
-      });
-      customerId = customer.id;
+      // Map billing interval to priceId
+      finalPriceId = billingInterval === "annual" ? ANNUAL_PRICE_ID : MONTHLY_PRICE_ID;
+    }
+
+    // Get or create Stripe customer (only if userKey is provided)
+    let customerId = null;
+    const sessionMetadata = {};
+    
+    if (userKey && userKey.trim().length > 0) {
+      const trimmedUserKey = userKey.trim();
+      sessionMetadata.userKey = trimmedUserKey;
       
-      // Save customer ID
-      upsertSubscription(userKey.trim(), {
-        isPro: false,
-        stripeCustomerId: customerId,
-      });
+      const existingSub = getSubscription(trimmedUserKey);
+      if (existingSub?.stripeCustomerId) {
+        customerId = existingSub.stripeCustomerId;
+      } else {
+        const customer = await stripe.customers.create({
+          metadata: { userKey: trimmedUserKey },
+        });
+        customerId = customer.id;
+        
+        // Save customer ID
+        upsertSubscription(trimmedUserKey, {
+          isPro: false,
+          stripeCustomerId: customerId,
+        });
+      }
     }
 
     // Build success and cancel URLs using FRONTEND_URL
     const successUrl = `${FRONTEND_URL}?success=true`;
     const cancelUrl = `${FRONTEND_URL}?canceled=true`;
 
-    const session = await stripe.checkout.sessions.create({
+    // Build session creation options
+    const sessionOptions = {
       mode: "subscription",
-      customer: customerId,
       payment_method_types: ["card"],
       line_items: [
         {
-          price: priceId,
+          price: finalPriceId,
           quantity: 1,
         },
       ],
       success_url: successUrl,
       cancel_url: cancelUrl,
-      metadata: { userKey: userKey.trim() },
-    });
+    };
 
-    console.log("✅ Stripe checkout session created:", session.id, "for userKey:", userKey.trim());
+    // Only add customer if we have one
+    if (customerId) {
+      sessionOptions.customer = customerId;
+    }
+
+    // Only add metadata if we have userKey
+    if (Object.keys(sessionMetadata).length > 0) {
+      sessionOptions.metadata = sessionMetadata;
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionOptions);
+
+    console.log("✅ Stripe checkout session created:", session.id, userKey ? `for userKey: ${userKey.trim()}` : "without userKey");
     
     // Always return { url } on success
     return res.json({ url: session.url });
