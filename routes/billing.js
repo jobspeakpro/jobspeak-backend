@@ -2,6 +2,7 @@
 import express from "express";
 import Stripe from "stripe";
 import dotenv from "dotenv";
+import { resolveUserKey } from "../middleware/resolveUserKey.js";
 import { getSubscription, upsertSubscription, updateSubscriptionStatus, getSubscriptionByStripeId, isWebhookEventProcessed, recordWebhookEvent, getTodaySessionCount } from "../services/db.js";
 
 dotenv.config();
@@ -124,11 +125,12 @@ router.post("/billing/create-checkout-session", async (req, res) => {
 // GET /api/billing/status?userKey=
 router.get("/billing/status", async (req, res) => {
   try {
-    const { userKey } = req.query;
+    // Resolve userKey from multiple sources (header, body, query, form-data)
+    const userKey = resolveUserKey(req);
 
     // Validate userKey - return 400 on missing field
-    if (!userKey || typeof userKey !== "string" || userKey.trim().length === 0) {
-      return res.status(400).json({ error: "userKey is required and must be a non-empty string" });
+    if (!userKey) {
+      return res.status(400).json({ error: "Missing userKey" });
     }
 
     // Get subscription from database (keyed by userKey) - reads latest data
