@@ -197,12 +197,13 @@ async function transcodeToWav(inputPath, mimetype) {
       args: ffmpegArgs || null,
     };
     
-    // Robust error logging
+    // Robust error logging - log all captured details
     console.error(`[STT] FFmpeg execFile error: ${errorDetails.message}`);
     console.error(`[STT] FFmpeg path: ${errorDetails.ffmpegPath}`);
     console.error(`[STT] Error code: ${errorDetails.code || 'N/A'}`);
     console.error(`[STT] Error signal: ${errorDetails.signal || 'N/A'}`);
     console.error(`[STT] Error name: ${err.name || 'N/A'}`);
+    console.error(`[STT] FFmpeg args: ${JSON.stringify(errorDetails.args)}`);
     if (errorDetails.stdout) {
       console.error(`[STT] FFmpeg stdout: ${errorDetails.stdout.substring(0, 1000)}`);
     }
