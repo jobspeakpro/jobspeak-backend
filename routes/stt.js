@@ -4,18 +4,23 @@ import multer from "multer";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import OpenAI from "openai";
 import { toFile } from "openai/uploads";
 import { rateLimiter } from "../middleware/rateLimiter.js";
 import { getSubscription } from "../services/db.js";
 import { getUsage, recordAttempt, isBlocked } from "../services/sttUsageStore.js";
 import { resolveUserKey } from "../middleware/resolveUserKey.js";
-import ffmpeg from "fluent-ffmpeg";
 import ffmpegStatic from "ffmpeg-static";
 import crypto from "crypto";
+import { captureException } from "../services/sentry.js";
+import { trackSTT, trackLimitHit } from "../services/analytics.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const execFileAsync = promisify(execFile);
 
 const router = express.Router();
 
@@ -26,7 +31,6 @@ const router = express.Router();
 let ffmpegPath = null;
 if (ffmpegStatic) {
   ffmpegPath = ffmpegStatic;
-  ffmpeg.setFfmpegPath(ffmpegPath);
   console.log("[STT] Using ffmpeg path:", ffmpegPath);
   console.log("[STT] FFmpeg path verified:", fs.existsSync(ffmpegPath) ? "EXISTS" : "NOT FOUND");
 } else {
@@ -116,17 +120,19 @@ const needsTranscoding = (mimetype) => {
 };
 
 // Helper function to transcode webm/ogg to WAV using ffmpeg (16kHz mono)
+// Uses execFile from node:child_process for Windows compatibility
 async function transcodeToWav(inputPath, mimetype) {
   const outputPath = inputPath + '.wav';
   
   // Check if ffmpeg is available
-  if (!ffmpegStatic) {
+  if (!ffmpegStatic || !ffmpegPath) {
     throw new Error("FFmpeg not available - cannot transcode " + mimetype);
   }
   
   console.log(`[STT] Transcoding -> WAV starting`);
   console.log(`[STT] Input file: ${inputPath}`);
   console.log(`[STT] Output file: ${outputPath}`);
+  console.log(`[STT] FFmpeg path: ${ffmpegPath}`);
   
   // Verify input file exists and get size
   if (!fs.existsSync(inputPath)) {
@@ -135,55 +141,83 @@ async function transcodeToWav(inputPath, mimetype) {
   const inputStats = fs.statSync(inputPath);
   console.log(`[STT] Input file size: ${inputStats.size} bytes`);
   
-  return new Promise((resolve, reject) => {
-    ffmpeg(inputPath)
-      .audioChannels(1)        // Mono
-      .audioFrequency(16000)    // 16kHz
-      .audioCodec('pcm_s16le')  // PCM 16-bit little-endian (standard WAV)
-      .format('wav')
-      .outputOptions([
-        '-ar', '16000',          // Explicit sample rate
-        '-ac', '1',              // Explicit mono channel
-        '-sample_fmt', 's16',    // Explicit 16-bit sample format
-      ])
-      .on("start", (commandLine) => {
-        console.log(`[STT] FFmpeg command: ${commandLine}`);
-      })
-      .on("progress", (progress) => {
-        if (progress.percent) {
-          console.log(`[STT] Transcoding progress: ${Math.round(progress.percent)}%`);
-        }
-      })
-      .on("end", () => {
-        // Verify output file was created and has size > 0
-        if (!fs.existsSync(outputPath)) {
-          console.error(`[STT] ERROR: Output file not found after transcoding: ${outputPath}`);
-          reject(new Error("Transcoding completed but output file not found"));
-          return;
-        }
-        
-        const outputStats = fs.statSync(outputPath);
-        if (outputStats.size === 0) {
-          console.error(`[STT] ERROR: Output file is empty: ${outputPath}`);
-          reject(new Error("Transcoding completed but output file is empty"));
-          return;
-        }
-        
-        console.log(`[STT] Transcoding -> WAV complete`);
-        console.log(`[STT] Output file size: ${outputStats.size} bytes`);
-        console.log(`[STT] Output file path: ${outputPath}`);
-        resolve(outputPath);
-      })
-      .on("error", (err) => {
-        console.error(`[STT] FFmpeg transcoding error: ${err.message}`);
-        console.error(`[STT] FFmpeg error details:`, err);
-        if (err.stderr) {
-          console.error(`[STT] FFmpeg stderr: ${err.stderr}`);
-        }
-        reject(new Error(`Transcoding failed: ${err.message}`));
-      })
-      .save(outputPath);
-  });
+  // Build ffmpeg command args: -y -i <input> -ac 1 -ar 16000 -f wav <output.wav>
+  const ffmpegArgs = [
+    '-y',                    // Overwrite output file if it exists
+    '-i', inputPath,         // Input file
+    '-ac', '1',             // Mono channel
+    '-ar', '16000',         // 16kHz sample rate
+    '-f', 'wav',            // WAV format
+    outputPath              // Output file
+  ];
+  
+  const commandLine = `${ffmpegPath} ${ffmpegArgs.join(' ')}`;
+  console.log(`[STT] FFmpeg command: ${commandLine}`);
+  
+  try {
+    // Run ffmpeg using execFileAsync with windowsHide for Windows compatibility
+    const { stdout, stderr } = await execFileAsync(ffmpegPath, ffmpegArgs, {
+      windowsHide: true
+    });
+    
+    // Log stdout/stderr if present (usually minimal for ffmpeg)
+    if (stdout) {
+      console.log(`[STT] FFmpeg stdout: ${stdout.substring(0, 500)}`);
+    }
+    if (stderr) {
+      console.log(`[STT] FFmpeg stderr: ${stderr.substring(0, 500)}`);
+    }
+    
+    // Verify output file was created and has size > 0
+    if (!fs.existsSync(outputPath)) {
+      console.error(`[STT] ERROR: Output file not found after transcoding: ${outputPath}`);
+      throw new Error("Transcoding completed but output file not found");
+    }
+    
+    const outputStats = fs.statSync(outputPath);
+    if (outputStats.size === 0) {
+      console.error(`[STT] ERROR: Output file is empty: ${outputPath}`);
+      throw new Error("Transcoding completed but output file is empty");
+    }
+    
+    console.log(`[STT] Transcoding -> WAV complete`);
+    console.log(`[STT] Output file size: ${outputStats.size} bytes`);
+    console.log(`[STT] Output file path: ${outputPath}`);
+    return outputPath;
+    
+  } catch (err) {
+    // Capture all error details for debugging
+    const errorDetails = {
+      message: err.message || null,
+      code: err.code || null,
+      signal: err.signal || null,
+      stdout: err.stdout || null,
+      stderr: err.stderr || null,
+      ffmpegPath: ffmpegPath || null,
+      args: ffmpegArgs || null,
+    };
+    
+    // Robust error logging
+    console.error(`[STT] FFmpeg execFile error: ${errorDetails.message}`);
+    console.error(`[STT] FFmpeg path: ${errorDetails.ffmpegPath}`);
+    console.error(`[STT] Error code: ${errorDetails.code || 'N/A'}`);
+    console.error(`[STT] Error signal: ${errorDetails.signal || 'N/A'}`);
+    console.error(`[STT] Error name: ${err.name || 'N/A'}`);
+    if (errorDetails.stdout) {
+      console.error(`[STT] FFmpeg stdout: ${errorDetails.stdout.substring(0, 1000)}`);
+    }
+    if (errorDetails.stderr) {
+      console.error(`[STT] FFmpeg stderr: ${errorDetails.stderr.substring(0, 1000)}`);
+    }
+    if (err.stack) {
+      console.error(`[STT] Error stack: ${err.stack}`);
+    }
+    
+    // Attach error details to error object for use in catch handler
+    const transcodeError = new Error(`TRANSCODE_FAILED: ${errorDetails.message || 'Unknown error'}`);
+    transcodeError.transcodeDetails = errorDetails;
+    throw transcodeError;
+  }
 }
 
 // Multer error handler middleware - must be before route handlers
@@ -333,6 +367,8 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
       // Block if already at limit (used >= 3)
       if (usage.blocked) {
         console.log(`[STT] BLOCKED - Daily limit reached: ${usage.used}/${usage.limit} attempts used`);
+        // Track limit hit event
+        trackLimitHit(userKey, "daily");
         return res.status(429).json({
           message: "Daily limit of 3 speaking attempts reached. Upgrade to Pro for unlimited access.",
           upgrade: true,
@@ -446,10 +482,16 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
       } catch (transcodeErr) {
         console.error("[STT] ERROR: Transcoding failed:", transcodeErr.message);
         console.error("[STT] Transcoding error stack:", transcodeErr.stack);
+        
+        // Extract error details if available
+        const errorDetails = transcodeErr.transcodeDetails || {};
         return res.status(400).json({ 
-          error: "transcoding_failed", 
-          details: transcodeErr.message || "Failed to transcode to WAV",
-          mimetype: mimetype
+          error: "TRANSCODE_FAILED",
+          message: errorDetails.message || transcodeErr?.message || null,
+          code: errorDetails.code || transcodeErr?.code || null,
+          stderr: errorDetails.stderr || transcodeErr?.stderr || null,
+          stdout: errorDetails.stdout || transcodeErr?.stdout || null,
+          ffmpegPath: errorDetails.ffmpegPath || ffmpegPath || null,
         });
       }
     } else {
@@ -496,6 +538,23 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
         console.error("[STT]   OpenAI response:", openaiErr.response);
       }
       
+      // Track STT failure
+      const errorType = openaiErr.status === 400 ? "openai_400" : "openai_error";
+      trackSTT("fail", userKey, errorType);
+      
+      // Capture to Sentry
+      captureException(openaiErr, {
+        userKey,
+        route: "/api/stt",
+        requestId: req.requestId,
+        errorType: errorType,
+        extra: {
+          mimetype,
+          fileType: mimeSent,
+          fileSize: req.file?.size,
+        },
+      });
+      
       // If OpenAI returns 400, return 400 status with clear error
       if (openaiErr.status === 400 || openaiErr.code === 400 || (openaiErr.message && openaiErr.message.includes("400"))) {
         console.error("[STT] OpenAI rejected file with 400 error - unsupported format");
@@ -536,6 +595,9 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     console.log(`[STT] ========================================`);
     console.log(`[STT] Request completed successfully`);
     
+    // Track STT success
+    trackSTT("success", userKey);
+    
     // Build response with usage info
     const response = {
       transcript: transcript.text || "",
@@ -561,6 +623,22 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     console.error("Error code:", err.code);
     console.error("Error status:", err.status);
     console.error("==============================");
+    
+    // Track STT failure
+    const userKey = req.userKey || null;
+    trackSTT("fail", userKey, err.name || "unknown_error");
+    
+    // Capture to Sentry
+    captureException(err, {
+      userKey,
+      route: "/api/stt",
+      requestId: req.requestId,
+      errorType: err.name || "unknown",
+      extra: {
+        fileSize: req.file?.size,
+        mimetype: req.file?.mimetype,
+      },
+    });
     
     // If OpenAI throws 400, return that 400 with proper error format
     if (err.status === 400 || err.code === 400 || (err.message && err.message.includes("400"))) {
