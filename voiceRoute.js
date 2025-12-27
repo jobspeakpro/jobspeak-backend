@@ -3,6 +3,8 @@ import express from "express";
 import fetch from "node-fetch";
 import { resolveUserKey } from "./middleware/resolveUserKey.js";
 import { getSubscription, getTodayTTSCount, incrementTodayTTSCount } from "./services/db.js";
+import { captureException } from "./services/sentry.js";
+import { trackTTS, trackLimitHit } from "./services/analytics.js";
 
 const router = express.Router();
 
@@ -56,19 +58,8 @@ router.post("/generate", async (req, res) => {
         }
       }
 
-      // Check daily limit for free users
-      if (!isPro) {
-        const todayCount = getTodayTTSCount(userKey);
-        
-        if (todayCount >= FREE_DAILY_TTS_LIMIT) {
-          return res.status(402).json({
-            error: "daily_limit_reached",
-            limit: FREE_DAILY_TTS_LIMIT,
-            remaining: 0,
-            upgrade: true
-          });
-        }
-      }
+      // Track usage for free users (no blocking - TTS is available to all users)
+      // Note: Usage tracking is kept for analytics, but free users are not blocked
     }
 
     const apiKey = process.env.ELEVENLABS_API_KEY;
@@ -102,6 +93,23 @@ router.post("/generate", async (req, res) => {
     if (!response.ok) {
       const errText = await response.text();
       console.error("ElevenLabs failure:", errText);
+      
+      // Track TTS failure
+      trackTTS("fail", userKey, "elevenlabs_error");
+      
+      // Capture to Sentry
+      const error = new Error(`ElevenLabs request failed: ${response.status}`);
+      captureException(error, {
+        userKey,
+        route: "/voice/generate",
+        requestId: req.requestId,
+        errorType: "elevenlabs_error",
+        extra: {
+          status: response.status,
+          responseText: errText.substring(0, 200), // Limit response text
+        },
+      });
+      
       return res.status(500).json({ error: "ElevenLabs request failed" });
     }
 
@@ -126,9 +134,24 @@ router.post("/generate", async (req, res) => {
     // Log success
     console.log(`[TTS] ok len=${content.length}`);
     
+    // Track TTS success
+    trackTTS("success", userKey);
+    
     res.send(Buffer.from(audioBuffer));
   } catch (err) {
     console.error("Voice generation error:", err);
+    
+    // Track TTS failure
+    trackTTS("fail", userKey, err.name || "unknown_error");
+    
+    // Capture to Sentry
+    captureException(err, {
+      userKey,
+      route: "/voice/generate",
+      requestId: req.requestId,
+      errorType: err.name || "unknown",
+    });
+    
     res.status(500).json({ error: "Voice generation failed" });
   }
 });
