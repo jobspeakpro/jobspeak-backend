@@ -33,6 +33,19 @@ router.post("/generate", async (req, res) => {
       return res.status(400).json({ error: "Missing text" });
     }
 
+    // Extract voiceId from request body, fallback to environment variable
+    const voiceIdFromBody = req.body?.voiceId;
+    const voiceIdFromFields = req.body?.fields?.voiceId;
+    const voiceIdFromQuery = req.query?.voiceId;
+    let voiceId = voiceIdFromBody || voiceIdFromFields || voiceIdFromQuery || process.env.ELEVENLABS_VOICE_ID;
+    
+    // Fallback to "alloy" if voiceId is still missing/invalid (ElevenLabs default)
+    if (!voiceId || typeof voiceId !== 'string' || voiceId.trim().length === 0) {
+      voiceId = "alloy";
+    } else {
+      voiceId = voiceId.trim();
+    }
+
     // userKey is optional - only check subscription/limits if present
     const userKey = resolveUserKey(req);
     let isPro = false;
@@ -63,13 +76,15 @@ router.post("/generate", async (req, res) => {
     }
 
     const apiKey = process.env.ELEVENLABS_API_KEY;
-    const voiceId = process.env.ELEVENLABS_VOICE_ID;
 
-    if (!apiKey || !voiceId) {
+    if (!apiKey) {
       return res.status(500).json({
-        error: "Missing ElevenLabs API key or Voice ID",
+        error: "Missing ElevenLabs API key",
       });
     }
+
+    // TEMP log for local dev
+    console.log("[TTS] generating", { voiceId, textPreview: content.slice(0, 40) });
 
     const response = await fetch(
       `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
