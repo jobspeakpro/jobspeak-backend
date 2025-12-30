@@ -82,14 +82,8 @@ router.post("/create-checkout-session", async (req, res) => {
     }
 
     // Determine success and cancel URLs
-    let successUrl, cancelUrl;
-    if (process.env.FRONTEND_URL) {
-      successUrl = `${process.env.FRONTEND_URL}?success=true`;
-      cancelUrl = `${process.env.FRONTEND_URL}?canceled=true`;
-    } else {
-      successUrl = process.env.SUCCESS_URL;
-      cancelUrl = process.env.CANCEL_URL;
-    }
+    const successUrl = "https://www.jobspeakpro.com/dashboard?success=true";
+    const cancelUrl = "https://www.jobspeakpro.com/pricing?canceled=true";
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",

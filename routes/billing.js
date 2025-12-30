@@ -4,6 +4,8 @@ import Stripe from "stripe";
 import dotenv from "dotenv";
 import { resolveUserKey } from "../middleware/resolveUserKey.js";
 import { getSubscription, upsertSubscription, updateSubscriptionStatus, getSubscriptionByStripeId, isWebhookEventProcessed, recordWebhookEvent, getTodaySessionCount } from "../services/db.js";
+import { captureException } from "../services/sentry.js";
+import { trackBilling, trackUpgrade } from "../services/analytics.js";
 
 dotenv.config();
 
@@ -16,76 +18,48 @@ if (!process.env.STRIPE_SECRET_KEY) {
 
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
+// Stripe / billing environment diagnostics (logged once on startup)
+console.log("🔧 Stripe/Billing environment check:");
+console.log("  - STRIPE_SECRET_KEY:", process.env.STRIPE_SECRET_KEY ? "✅ present" : "❌ missing");
+console.log("  - STRIPE_WEBHOOK_SECRET:", process.env.STRIPE_WEBHOOK_SECRET ? "✅ present" : "❌ missing");
+console.log("  - STRIPE_PRICE_ID_MONTHLY:", process.env.STRIPE_PRICE_ID_MONTHLY ? "✅ present" : "❌ missing");
+console.log("  - STRIPE_PRICE_ID_ANNUAL:", process.env.STRIPE_PRICE_ID_ANNUAL ? "✅ present" : "❌ missing");
+console.log("  - FRONTEND_URL:", process.env.FRONTEND_URL ? "✅ present" : "❌ missing");
+console.log("  - STRIPE_BILLING_PORTAL_RETURN_URL:", process.env.STRIPE_BILLING_PORTAL_RETURN_URL ? "✅ present" : "⚠️ will fall back to FRONTEND_URL if set");
+
 // Free tier daily limit for "Fix my answer" feature
 const FREE_DAILY_LIMIT = 3;
 
+// -------------------------
+// CREATE CHECKOUT SESSION
+// -------------------------
 // POST /api/billing/create-checkout-session
 router.post("/billing/create-checkout-session", async (req, res) => {
   try {
     // Resolve userKey from multiple sources (header, body, query, form-data) - optional
     const userKey = resolveUserKey(req);
 
-    // Accept input from JSON body OR query OR form-data
-    // Try to get plan/priceType/priceId/interval from multiple sources
-    const plan = req.body?.plan || req.query?.plan || req.body?.fields?.plan;
-    const priceType = req.body?.priceType || req.query?.priceType || req.body?.fields?.priceType;
-    const priceId = req.body?.priceId || req.query?.priceId || req.body?.fields?.priceId;
-    const interval = req.body?.interval || req.query?.interval || req.body?.fields?.interval;
+    // Accept input: { interval: "monthly" | "annual" }
+    // Also accept priceType for backwards compatibility
+    const interval = req.body?.interval || req.body?.priceType;
 
     // Debug logging BEFORE validation (to help diagnose 400 errors)
     console.log("[CHECKOUT DEBUG] Request details:", {
       contentType: req.headers["content-type"],
       body: req.body,
-      query: req.query,
-      bodyFields: req.body?.fields || null,
       resolvedUserKey: userKey || null,
-      plan,
-      priceType,
-      priceId,
       interval,
     });
 
-    // Determine the billing interval/plan from various input formats
-    // Accept: plan, priceType, interval, or priceId (if priceId is provided, we'll use it directly)
-    let billingInterval = null;
-    
-    if (priceId) {
-      // If priceId is provided directly, we'll use it - no need to determine interval
-      // But we still need to validate it exists
-    } else if (plan === "annual" || priceType === "annual" || interval === "year" || interval === "annual") {
-      billingInterval = "annual";
-    } else if (plan === "monthly" || priceType === "monthly" || interval === "month" || interval === "monthly") {
-      billingInterval = "monthly";
-    }
-
-    // Validate required fields - require ONLY the minimum needed to create checkout
-    // Need either: priceId OR (plan/priceType/interval that maps to monthly/annual)
-    if (!priceId && !billingInterval) {
-      // Enhanced debug logging on 400 error
-      const debugInfo = {
-        contentType: req.headers["content-type"] || "not set",
-        receivedFields: {
-          body: Object.keys(req.body || {}),
-          query: Object.keys(req.query || {}),
-          bodyFields: req.body?.fields ? Object.keys(req.body.fields) : null,
-          headers: {
-            "x-user-key": req.header("x-user-key") ? "present" : "missing",
-          },
-        },
-        resolvedValues: {
-          plan,
-          priceType,
-          priceId,
-          interval,
-          userKey: userKey || null,
-        },
-      };
-      console.error("[CHECKOUT ERROR] Missing required field: need plan, priceType, interval, or priceId", debugInfo);
+    // Validate required field: interval must be "monthly" or "annual"
+    if (!interval || (interval !== "monthly" && interval !== "annual")) {
+      console.error("[CHECKOUT ERROR] Missing or invalid interval field. Required: { interval: 'monthly' | 'annual' }");
       return res.status(400).json({ 
-        error: "Missing plan, priceType, interval, or priceId",
-        debug: debugInfo,
+        error: "Missing or invalid interval. Required: { interval: 'monthly' | 'annual' }",
       });
     }
+
+    const billingInterval = interval;
 
     // Validate all required environment variables upfront - return 400 with clear messages
     const missingVars = [];
@@ -125,15 +99,14 @@ router.post("/billing/create-checkout-session", async (req, res) => {
     const ANNUAL_PRICE_ID = process.env.STRIPE_PRICE_ID_ANNUAL;
     const FRONTEND_URL = process.env.FRONTEND_URL;
 
-    // Determine the actual priceId to use
-    let finalPriceId;
-    if (priceId) {
-      // Use provided priceId directly
-      finalPriceId = priceId;
-    } else {
-      // Map billing interval to priceId
-      finalPriceId = billingInterval === "annual" ? ANNUAL_PRICE_ID : MONTHLY_PRICE_ID;
-    }
+    // Log price IDs for validation
+    console.log("Using price IDs:", {
+      monthly: MONTHLY_PRICE_ID,
+      annual: ANNUAL_PRICE_ID,
+    });
+
+    // Determine the actual priceId to use based on interval
+    const finalPriceId = billingInterval === "annual" ? ANNUAL_PRICE_ID : MONTHLY_PRICE_ID;
 
     // Get or create Stripe customer (only if userKey is provided)
     let customerId = null;
@@ -161,8 +134,8 @@ router.post("/billing/create-checkout-session", async (req, res) => {
     }
 
     // Build success and cancel URLs using FRONTEND_URL
-    const successUrl = `${FRONTEND_URL}?success=true`;
-    const cancelUrl = `${FRONTEND_URL}?canceled=true`;
+    const successUrl = `${FRONTEND_URL}/pricing?success=true`;
+    const cancelUrl = `${FRONTEND_URL}/pricing?canceled=true`;
 
     // Build session creation options
     const sessionOptions = {
@@ -176,6 +149,7 @@ router.post("/billing/create-checkout-session", async (req, res) => {
       ],
       success_url: successUrl,
       cancel_url: cancelUrl,
+      allow_promotion_codes: true,
     };
 
     // Only add customer if we have one
@@ -188,16 +162,105 @@ router.post("/billing/create-checkout-session", async (req, res) => {
       sessionOptions.metadata = sessionMetadata;
     }
 
-    const session = await stripe.checkout.sessions.create(sessionOptions);
+    // Create Stripe checkout session with detailed error logging
+    let session;
+    try {
+      session = await stripe.checkout.sessions.create(sessionOptions);
+    } catch (error) {
+      console.error("STRIPE CHECKOUT ERROR:", error);
+      if (error.raw) {
+        console.error("Stripe raw error message:", error.raw.message);
+      }
+      return res.status(500).json({
+        error: "Stripe checkout failed",
+        message: error.message,
+      });
+    }
 
     console.log("✅ Stripe checkout session created:", session.id, userKey ? `for userKey: ${userKey.trim()}` : "without userKey");
+    
+    // Track checkout started
+    const plan = billingInterval === "annual" ? "annual" : "monthly";
+    trackBilling("started", userKey, plan);
     
     // Always return { url } on success
     return res.json({ url: session.url });
   } catch (err) {
     console.error("❌ Stripe checkout session error:", err?.message || err);
+    
+    // Track checkout failure
+    const plan = billingInterval === "annual" ? "annual" : "monthly";
+    trackBilling("failed", userKey, plan, err.name || "stripe_error");
+    
+    // Capture to Sentry
+    captureException(err, {
+      userKey,
+      route: "/api/billing/create-checkout-session",
+      requestId: req.requestId,
+      errorType: "stripe_checkout_error",
+    });
+    
     res.status(500).json({
       error: err?.message || "Failed to create checkout session",
+    });
+  }
+});
+
+// -------------------------
+// CUSTOMER BILLING PORTAL
+// -------------------------
+// POST /api/billing/customer-portal
+router.post("/billing/customer-portal", async (req, res) => {
+  try {
+    const userKey = resolveUserKey(req);
+
+    if (!userKey) {
+      return res.status(400).json({ error: "Missing userKey" });
+    }
+
+    if (!process.env.STRIPE_SECRET_KEY) {
+      console.error("❌ STRIPE_SECRET_KEY is required for customer portal");
+      return res.status(500).json({ error: "Stripe not configured" });
+    }
+
+    if (!stripe) {
+      console.error("❌ Stripe not initialized for customer portal");
+      return res.status(500).json({ error: "Stripe initialization failed" });
+    }
+
+    // Determine return URL: prefer STRIPE_BILLING_PORTAL_RETURN_URL, fall back to FRONTEND_URL
+    const returnUrl =
+      process.env.STRIPE_BILLING_PORTAL_RETURN_URL || process.env.FRONTEND_URL;
+
+    if (!returnUrl) {
+      console.error(
+        "❌ Missing STRIPE_BILLING_PORTAL_RETURN_URL or FRONTEND_URL for customer portal"
+      );
+      return res.status(500).json({
+        error: "Missing STRIPE_BILLING_PORTAL_RETURN_URL or FRONTEND_URL",
+      });
+    }
+
+    const subscription = getSubscription(userKey.trim());
+
+    if (!subscription || !subscription.stripeCustomerId) {
+      return res.status(400).json({
+        error: "No Stripe customer found for this user",
+      });
+    }
+
+    const portalSession = await stripe.billingPortal.sessions.create({
+      customer: subscription.stripeCustomerId,
+      return_url: returnUrl,
+    });
+
+    console.log("✅ Stripe billing portal session created:", portalSession.id, "for userKey:", userKey.trim());
+
+    return res.json({ url: portalSession.url });
+  } catch (err) {
+    console.error("❌ Stripe billing portal error:", err?.message || err);
+    res.status(500).json({
+      error: err?.message || "Failed to create billing portal session",
     });
   }
 });
@@ -461,6 +524,11 @@ router.post("/billing/webhook", async (req, res) => {
       // Update event record with final subscription data
       recordWebhookEvent(event.id, event.type, subscription.id, userKey.trim());
 
+      // Track checkout success
+      // Determine plan from subscription items (if available)
+      const plan = subscription.items?.data?.[0]?.price?.recurring?.interval === "year" ? "annual" : "monthly";
+      trackBilling("success", userKey.trim(), plan);
+
       console.log(`[WEBHOOK SUCCESS] ${timestamp} - Subscription activated`, {
         eventId: event.id,
         userKey: userKey.trim(),
@@ -528,6 +596,63 @@ router.post("/billing/webhook", async (req, res) => {
         recordWebhookEvent(event.id, event.type, subscription.id, null);
       }
     } 
+    // Handle customer.subscription.created - initial subscription object
+    else if (event.type === "customer.subscription.created") {
+      const subscription = event.data.object;
+
+      console.log(`[WEBHOOK PROCESSING] ${timestamp} - customer.subscription.created`, {
+        eventId: event.id,
+        subscriptionId: subscription.id,
+        status: subscription.status,
+      });
+
+      // Always retrieve fresh subscription data from Stripe (source of truth)
+      const freshSubscription = await stripe.subscriptions.retrieve(subscription.id);
+      const existingSub = getSubscriptionByStripeId(freshSubscription.id);
+
+      if (existingSub) {
+        const isActive =
+          freshSubscription.status === "active" || freshSubscription.status === "trialing";
+        const currentPeriodEnd = freshSubscription.current_period_end
+          ? new Date(freshSubscription.current_period_end * 1000).toISOString()
+          : null;
+
+        updateSubscriptionStatus(
+          freshSubscription.id,
+          freshSubscription.status,
+          currentPeriodEnd
+        );
+
+        // Ensure isPro reflects current Stripe truth
+        upsertSubscription(existingSub.userKey, {
+          isPro: isActive,
+          stripeCustomerId: freshSubscription.customer,
+          stripeSubscriptionId: freshSubscription.id,
+          status: freshSubscription.status,
+          currentPeriodEnd,
+        });
+
+        recordWebhookEvent(event.id, event.type, freshSubscription.id, existingSub.userKey);
+
+        console.log(`[WEBHOOK SUCCESS] ${timestamp} - Subscription created`, {
+          eventId: event.id,
+          subscriptionId: freshSubscription.id,
+          userKey: existingSub.userKey,
+          status: freshSubscription.status,
+          isPro: isActive,
+          currentPeriodEnd,
+        });
+      } else {
+        console.warn(
+          `[WEBHOOK WARNING] ${timestamp} - Subscription not found in database on creation`,
+          {
+            eventId: event.id,
+            subscriptionId: subscription.id,
+          }
+        );
+        recordWebhookEvent(event.id, event.type, subscription.id, null);
+      }
+    }
     // Handle customer.subscription.deleted - subscription canceled
     else if (event.type === "customer.subscription.deleted") {
       const subscription = event.data.object;
@@ -623,6 +748,60 @@ router.post("/billing/webhook", async (req, res) => {
         }
       } else {
         // Update event record (no subscription)
+        recordWebhookEvent(event.id, event.type, null, null);
+      }
+    } 
+    // Handle invoice.paid - successful payment / renewal
+    else if (event.type === "invoice.paid") {
+      const invoice = event.data.object;
+
+      console.log(`[WEBHOOK PROCESSING] ${timestamp} - invoice.paid`, {
+        eventId: event.id,
+        invoiceId: invoice.id,
+        subscriptionId: invoice.subscription || "none",
+      });
+
+      if (invoice.subscription) {
+        const subscription = await stripe.subscriptions.retrieve(invoice.subscription);
+        const existingSub = getSubscriptionByStripeId(subscription.id);
+
+        if (existingSub) {
+          const currentPeriodEnd = subscription.current_period_end
+            ? new Date(subscription.current_period_end * 1000).toISOString()
+            : null;
+
+          // Payment succeeded - update subscription status and entitlement
+          updateSubscriptionStatus(subscription.id, subscription.status, currentPeriodEnd);
+
+          const isActive =
+            subscription.status === "active" || subscription.status === "trialing";
+
+          upsertSubscription(existingSub.userKey, {
+            isPro: isActive,
+            stripeCustomerId: subscription.customer,
+            stripeSubscriptionId: subscription.id,
+            status: subscription.status,
+            currentPeriodEnd,
+          });
+
+          recordWebhookEvent(event.id, event.type, subscription.id, existingSub.userKey);
+
+          console.log(`[WEBHOOK SUCCESS] ${timestamp} - Payment succeeded`, {
+            eventId: event.id,
+            subscriptionId: subscription.id,
+            userKey: existingSub.userKey,
+            status: subscription.status,
+            isPro: isActive,
+            currentPeriodEnd,
+          });
+        } else {
+          recordWebhookEvent(event.id, event.type, subscription.id, null);
+          console.warn(`[WEBHOOK WARNING] ${timestamp} - invoice.paid subscription not found`, {
+            eventId: event.id,
+            subscriptionId: subscription.id,
+          });
+        }
+      } else {
         recordWebhookEvent(event.id, event.type, null, null);
       }
     } else {

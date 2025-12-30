@@ -4,7 +4,7 @@ import multer from "multer";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import OpenAI from "openai";
 import { toFile } from "openai/uploads";
@@ -27,17 +27,124 @@ const router = express.Router();
 // Daily speaking attempt limit is now managed by sttUsageStore.js (LIMIT = 3)
 // Only successful STT transcriptions consume attempts (not /voice/generate or /ai/micro-demo)
 
-// Set ffmpeg path from ffmpeg-static (works on Railway without system ffmpeg)
-let ffmpegPath = null;
-if (ffmpegStatic) {
-  ffmpegPath = ffmpegStatic;
-  console.log("[STT] Using ffmpeg path:", ffmpegPath);
-  console.log("[STT] FFmpeg path verified:", fs.existsSync(ffmpegPath) ? "EXISTS" : "NOT FOUND");
-} else {
-  console.error("[STT] ERROR: ffmpeg-static not found. WebM conversion will fail.");
-  console.error("[STT] Check package.json - ffmpeg-static must be in dependencies (not devDependencies)");
-  console.log("[STT] FFmpeg path: ffmpeg not found");
+/**
+ * Helper function to test ffmpeg binary using spawn
+ * @param {string} binaryPath - Path to ffmpeg binary
+ * @returns {Promise<{success: boolean, version?: string, reason?: string}>}
+ */
+function testFfmpegWithSpawn(binaryPath) {
+  return new Promise((resolve) => {
+    const proc = spawn(binaryPath, ['-version'], {
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let timeout;
+
+    proc.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    proc.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    proc.on('close', (code) => {
+      clearTimeout(timeout);
+      if (code === 0 && (stdout || stderr)) {
+        const versionOutput = stdout || stderr;
+        const firstLine = versionOutput.split('\n')[0] || versionOutput.substring(0, 100);
+        resolve({ success: true, version: firstLine.trim() });
+      } else {
+        resolve({ success: false, reason: `exit code ${code}` });
+      }
+    });
+
+    proc.on('error', (err) => {
+      clearTimeout(timeout);
+      resolve({ success: false, reason: err.message });
+    });
+
+    // 5 second timeout
+    timeout = setTimeout(() => {
+      proc.kill();
+      resolve({ success: false, reason: 'timeout' });
+    }, 5000);
+  });
 }
+
+/**
+ * Helper function to resolve ffmpeg path with fallback strategy:
+ * 1. Check FFMPEG_PATH environment variable (must exist; spawn it with -version)
+ * 2. Try "ffmpeg" from PATH (spawn("ffmpeg", ["-version"]))
+ * 3. Fall back to ffmpeg-static only if spawn works
+ * 
+ * @returns {Promise<{path: string|null, version: string|null, reason: string|null}>}
+ */
+async function getFfmpegPath() {
+  // Option 1: Check FFMPEG_PATH environment variable (must exist; spawn it with -version)
+  if (process.env.FFMPEG_PATH) {
+    const envPath = process.env.FFMPEG_PATH.trim();
+    const test = await testFfmpegWithSpawn(envPath);
+    if (test.success) {
+      return { path: envPath, version: test.version || null, reason: null };
+    }
+    // Not runnable, continue to next option
+  }
+
+  // Option 2: Try "ffmpeg" from PATH
+  const pathTest = await testFfmpegWithSpawn('ffmpeg');
+  if (pathTest.success) {
+    return { path: 'ffmpeg', version: pathTest.version || null, reason: null };
+  }
+
+  // Option 3: Fall back to ffmpeg-static only if spawn works
+  if (ffmpegStatic) {
+    const staticTest = await testFfmpegWithSpawn(ffmpegStatic);
+    if (staticTest.success) {
+      return { path: ffmpegStatic, version: staticTest.version || null, reason: null };
+    }
+  }
+
+  // Build reason string
+  let reason = 'No valid ffmpeg found';
+  if (process.env.FFMPEG_PATH) {
+    reason = `FFMPEG_PATH=${process.env.FFMPEG_PATH} is not runnable`;
+  } else {
+    reason = 'ffmpeg not in PATH and ffmpeg-static not available';
+  }
+
+  return { path: null, version: null, reason };
+}
+
+// Resolve ffmpeg path at startup (async, non-blocking)
+let ffmpegPath = null;
+let ffmpegVersion = null;
+let ffmpegPathResolved = false;
+
+// Initialize ffmpeg path asynchronously
+(async () => {
+  try {
+    const result = await getFfmpegPath();
+    ffmpegPathResolved = true;
+    
+    if (result.path) {
+      ffmpegPath = result.path;
+      ffmpegVersion = result.version;
+      console.log("[STT] ✅ FFmpeg path resolved:", ffmpegPath);
+      if (ffmpegVersion) {
+        console.log("[STT] ✅ FFmpeg version:", ffmpegVersion);
+      }
+    } else {
+      console.error("[STT] ❌ FFMPEG_NOT_AVAILABLE:", result.reason || "No valid ffmpeg found");
+    }
+  } catch (err) {
+    console.error("[STT] ❌ FFMPEG_NOT_AVAILABLE:", err.message);
+    ffmpegPathResolved = true;
+  }
+})();
 
 // Initialize OpenAI - handle missing env var gracefully (don't crash on boot)
 if (!process.env.OPENAI_API_KEY) {
@@ -124,9 +231,21 @@ const needsTranscoding = (mimetype) => {
 async function transcodeToWav(inputPath, mimetype) {
   const outputPath = inputPath + '.wav';
   
+  // Wait for ffmpeg path resolution if still in progress
+  if (!ffmpegPathResolved) {
+    // Wait up to 2 seconds for initialization
+    let waited = 0;
+    while (!ffmpegPathResolved && waited < 2000) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      waited += 100;
+    }
+  }
+  
   // Check if ffmpeg is available
-  if (!ffmpegStatic || !ffmpegPath) {
-    throw new Error("FFmpeg not available - cannot transcode " + mimetype);
+  if (!ffmpegPath) {
+    const error = new Error("FFMPEG_NOT_AVAILABLE: No valid ffmpeg found. Install ffmpeg or set FFMPEG_PATH environment variable.");
+    error.code = "FFMPEG_NOT_AVAILABLE";
+    throw error;
   }
   
   console.log(`[STT] Transcoding -> WAV starting`);
@@ -302,6 +421,12 @@ const uploadAudio = (req, res, next) => {
   });
 };
 
+// OPTIONS handler for CORS preflight
+router.options("/stt", (req, res) => {
+  console.log("[STT] OPTIONS /api/stt");
+  res.status(204).end();
+});
+
 // Rate limiting: 20 requests per minute per userKey (or IP if userKey not available)
 // Note: userKey comes from form-data, so rate limiting happens after multer
 // Order: multer -> validateUserKey -> rateLimiter -> handler
@@ -317,8 +442,11 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
   const originalFilePath = req.file?.path;
   let outputWavPath = null;
   
+  console.log("[STT] POST /api/stt begins");
+  
   try {
     if (!req.file) {
+      console.log("[STT] POST /api/stt ends with status 400 (no file)");
       return res.status(400).json({ error: "No audio file uploaded" });
     }
 
@@ -437,13 +565,21 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     if (requiresTranscoding) {
       console.log(`[STT] Transcoding required for ${mimetype}`);
       
+      // Wait for ffmpeg path resolution if still in progress
+      if (!ffmpegPathResolved) {
+        let waited = 0;
+        while (!ffmpegPathResolved && waited < 2000) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          waited += 100;
+        }
+      }
+      
       // Check if ffmpeg is available
-      if (!ffmpegStatic || !ffmpegPath) {
-        console.error("[STT] ERROR: FFmpeg not available - cannot transcode", mimetype);
-        return res.status(400).json({ 
-          error: "ffmpeg_missing",
-          received: mimetype,
-          supported: ["audio/wav", "audio/mp3", "audio/mpeg", "audio/mp4"]
+      if (!ffmpegPath) {
+        console.error("[STT] ERROR: FFMPEG_NOT_AVAILABLE - cannot transcode", mimetype);
+        return res.status(500).json({ 
+          error: "FFMPEG_NOT_AVAILABLE",
+          message: "Install FFmpeg: winget install Gyan.FFmpeg (or set FFMPEG_PATH=C:\\path\\ffmpeg.exe)"
         });
       }
       
@@ -483,6 +619,14 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
       } catch (transcodeErr) {
         console.error("[STT] ERROR: Transcoding failed:", transcodeErr.message);
         console.error("[STT] Transcoding error stack:", transcodeErr.stack);
+        
+        // Handle FFMPEG_NOT_AVAILABLE error
+        if (transcodeErr.code === "FFMPEG_NOT_AVAILABLE" || transcodeErr.message?.includes("FFMPEG_NOT_AVAILABLE")) {
+          return res.status(500).json({ 
+            error: "FFMPEG_NOT_AVAILABLE",
+            message: "Install FFmpeg: winget install Gyan.FFmpeg (or set FFMPEG_PATH=C:\\path\\ffmpeg.exe)"
+          });
+        }
         
         // Extract error details if available
         const errorDetails = transcodeErr.transcodeDetails || {};
@@ -614,6 +758,7 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
       };
     }
     
+    console.log("[STT] POST /api/stt ends with status 200");
     return res.json(response);
   } catch (err) {
     // Log full error stack
@@ -643,6 +788,7 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     
     // If OpenAI throws 400, return that 400 with proper error format
     if (err.status === 400 || err.code === 400 || (err.message && err.message.includes("400"))) {
+      console.log("[STT] POST /api/stt ends with status 400");
       return res.status(400).json({ 
         error: "stt_failed", 
         details: err.message || "Unknown error occurred"
@@ -650,6 +796,7 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     }
     
     // Return JSON error with details for other errors
+    console.log("[STT] POST /api/stt ends with status 500");
     return res.status(500).json({ 
       error: "stt_failed", 
       details: err.message || "Unknown error occurred"

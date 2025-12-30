@@ -92,6 +92,18 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_stt_userKey_date ON stt_usage(userKey, date);
+
+  CREATE TABLE IF NOT EXISTS analytics_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    eventName TEXT NOT NULL,
+    userKey TEXT,
+    properties TEXT, -- JSON string
+    createdAt TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_analytics_eventName ON analytics_events(eventName);
+  CREATE INDEX IF NOT EXISTS idx_analytics_userKey ON analytics_events(userKey);
+  CREATE INDEX IF NOT EXISTS idx_analytics_createdAt ON analytics_events(createdAt DESC);
 `);
 
 export const saveSession = (userKey, transcript, aiResponse, score = null, idempotencyKey = null) => {
@@ -394,6 +406,19 @@ export const incrementTodaySTTCount = (userKey) => {
   
   // Return the new count
   return getTodaySTTCount(userKey);
+};
+
+// Analytics event tracking
+export const recordAnalyticsEvent = (eventName, properties = {}, userKey = null) => {
+  const stmt = db.prepare(`
+    INSERT INTO analytics_events (eventName, userKey, properties, createdAt)
+    VALUES (?, ?, ?, ?)
+  `);
+  
+  const createdAt = new Date().toISOString();
+  const propertiesJson = JSON.stringify(properties);
+  
+  stmt.run(eventName, userKey || null, propertiesJson, createdAt);
 };
 
 export default db;

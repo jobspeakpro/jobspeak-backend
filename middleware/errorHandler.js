@@ -1,7 +1,11 @@
 // jobspeak-backend/middleware/errorHandler.js
+import { captureException } from "../services/sentry.js";
+import { resolveUserKey } from "./resolveUserKey.js";
+
 /**
  * Centralized error handler for production hardening
  * - Logs all errors with context
+ * - Sends errors to Sentry with user context
  * - Prevents information leakage in production
  * - Handles specific error types appropriately
  */
@@ -9,6 +13,8 @@ export const errorHandler = (err, req, res, next) => {
   const timestamp = new Date().toISOString();
   const errorId = Math.random().toString(36).substring(2, 9);
   const isDevelopment = process.env.NODE_ENV === "development";
+  const userKey = resolveUserKey(req);
+  const requestId = req.headers["x-request-id"] || errorId;
 
   // Log full error details (server-side only)
   console.error(`[${timestamp}] [${errorId}] Error:`, {
@@ -17,6 +23,18 @@ export const errorHandler = (err, req, res, next) => {
     path: req.path,
     method: req.method,
     ip: req.ip || req.connection?.remoteAddress,
+  });
+
+  // Send to Sentry with context
+  captureException(err, {
+    userKey,
+    route: req.path,
+    requestId,
+    extra: {
+      method: req.method,
+      ip: req.ip || req.connection?.remoteAddress,
+      userAgent: req.headers["user-agent"],
+    },
   });
 
   // Handle specific error types with status codes
