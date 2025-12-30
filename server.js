@@ -9,6 +9,9 @@ import { fileURLToPath } from "url";
 import aiRoutes from "./routes/ai.js";
 import authRoutes from "./routes/auth.js";
 import billingRoutes from "./routes/billing.js";
+import dashboardRoutes from "./routes/dashboard.js";
+import dailyTipRoutes from "./routes/dailyTip.js";
+import mockInterviewRoutes from "./routes/mockInterview.js";
 import resumeRoutes from "./routes/resume.js";
 import sessionsRoutes from "./routes/sessions.js";
 import stripeRoutes from "./routes/stripe.js";
@@ -176,6 +179,9 @@ app.get("/api/health", (req, res) => {
 import analyticsRoutes from "./routes/analytics.js";
 app.use("/api", analyticsRoutes); // /api/track
 app.use("/api", billingRoutes);  // /api/billing/*
+app.use("/api", dashboardRoutes); // /api/dashboard/*
+app.use("/api", dailyTipRoutes);  // /api/daily-tip
+app.use("/api", mockInterviewRoutes); // /api/mock-interview/*
 app.use("/api", sttRoutes);      // /api/stt
 app.use("/api", sessionsRoutes);  // /api/sessions
 app.use("/api", ttsRoutes);      // /api/tts

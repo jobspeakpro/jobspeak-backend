@@ -3,6 +3,7 @@ import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import crypto from "crypto";
 import { getTodayUTC } from "./dateUtils.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -113,6 +114,23 @@ db.exec(`
   );
   
   CREATE INDEX IF NOT EXISTS idx_question_history_user ON question_history(userKey, seenAt DESC);
+
+  CREATE TABLE IF NOT EXISTS mock_interviews (
+    id TEXT PRIMARY KEY,
+    user_key TEXT NOT NULL,
+    interview_type TEXT NOT NULL CHECK(interview_type IN ('short', 'long')),
+    overall_score INTEGER NOT NULL,
+    hiring_recommendation TEXT NOT NULL CHECK(hiring_recommendation IN ('strong_recommend', 'recommend_with_reservations', 'not_recommended_yet')),
+    created_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_mock_interviews_user ON mock_interviews(user_key, created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS mock_interview_attempts (
+    user_key TEXT PRIMARY KEY,
+    used INTEGER NOT NULL DEFAULT 0,
+    used_at TEXT
+  );
 `);
 
 export const saveSession = (userKey, transcript, aiResponse, score = null, idempotencyKey = null) => {
@@ -446,4 +464,90 @@ export const getRecentQuestionIds = (userKey, limit = 20) => {
   return rows.map(r => r.questionId);
 };
 
+// Mock Interview functions
+export const getMockInterviewAttempt = (userKey) => {
+  const stmt = db.prepare(`
+    SELECT user_key, used, used_at
+    FROM mock_interview_attempts
+    WHERE user_key = ?
+  `);
+
+  const row = stmt.get(userKey);
+  if (!row) {
+    return { used: 0, used_at: null };
+  }
+
+  return {
+    used: row.used,
+    used_at: row.used_at,
+  };
+};
+
+export const markMockInterviewUsed = (userKey) => {
+  const stmt = db.prepare(`
+    INSERT INTO mock_interview_attempts (user_key, used, used_at)
+    VALUES (?, 1, ?)
+    ON CONFLICT(user_key) DO UPDATE SET
+      used = 1,
+      used_at = excluded.used_at
+  `);
+
+  const usedAt = new Date().toISOString();
+  stmt.run(userKey, usedAt);
+
+  return { used: 1, used_at: usedAt };
+};
+
+export const saveMockInterview = (userKey, interviewType, overallScore) => {
+  const id = crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+  const hiringRecommendation = calculateHiringRecommendation(overallScore);
+
+  const stmt = db.prepare(`
+    INSERT INTO mock_interviews (id, user_key, interview_type, overall_score, hiring_recommendation, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+
+  stmt.run(id, userKey, interviewType, overallScore, hiringRecommendation, createdAt);
+
+  return {
+    id,
+    user_key: userKey,
+    interview_type: interviewType,
+    overall_score: overallScore,
+    hiring_recommendation: hiringRecommendation,
+    created_at: createdAt,
+  };
+};
+
+export const getMockInterviewCount = (userKey) => {
+  const stmt = db.prepare(`
+    SELECT COUNT(*) as count
+    FROM mock_interviews
+    WHERE user_key = ?
+  `);
+
+  const row = stmt.get(userKey);
+  return row ? row.count : 0;
+};
+
+export const getLastMockInterview = (userKey) => {
+  const stmt = db.prepare(`
+    SELECT id, user_key, interview_type, overall_score, hiring_recommendation, created_at
+    FROM mock_interviews
+    WHERE user_key = ?
+    ORDER BY created_at DESC
+    LIMIT 1
+  `);
+
+  return stmt.get(userKey) || null;
+};
+
+export const calculateHiringRecommendation = (score) => {
+  if (score >= 80) return 'strong_recommend';
+  if (score >= 60) return 'recommend_with_reservations';
+  return 'not_recommended_yet';
+};
+
 export default db;
+
