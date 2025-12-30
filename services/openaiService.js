@@ -29,6 +29,7 @@ export async function askGPT({
   prompt,
   systemPrompt = "You are an AI English interview coach helping ESL job seekers sound clear and confident.",
   model = "gpt-4o-mini",
+  response_format,
 }) {
   if (!prompt || !prompt.trim()) {
     throw new Error("Missing prompt for askGPT");
@@ -47,6 +48,7 @@ export async function askGPT({
         { role: "system", content: systemPrompt },
         { role: "user", content: prompt },
       ],
+      response_format,
       temperature: 0.7,
     });
 

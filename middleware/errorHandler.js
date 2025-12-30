@@ -1,5 +1,5 @@
 // jobspeak-backend/middleware/errorHandler.js
-import { captureException } from "../services/sentry.js";
+const captureException = (err, context) => console.error("[SENTRY_FALLBACK]", err, context);
 import { resolveUserKey } from "./resolveUserKey.js";
 
 /**

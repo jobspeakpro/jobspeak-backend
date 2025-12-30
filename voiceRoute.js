@@ -1,9 +1,9 @@
 // jobspeak-backend/voiceRoute.js
 import express from "express";
-import fetch from "node-fetch";
+// import fetch from "node-fetch"; // Use native fetch
 import { resolveUserKey } from "./middleware/resolveUserKey.js";
 import { getSubscription, getTodayTTSCount, incrementTodayTTSCount } from "./services/db.js";
-import { captureException } from "./services/sentry.js";
+const captureException = (err, context) => console.error("[SENTRY_FALLBACK]", err, context);
 import { trackTTS, trackLimitHit } from "./services/analytics.js";
 
 const router = express.Router();
@@ -12,24 +12,19 @@ const FREE_DAILY_TTS_LIMIT = 3;
 
 // Voice generation route - userKey is optional
 router.post("/generate", async (req, res) => {
+  console.log("CT:", req.headers["content-type"], "BODY:", JSON.stringify(req.body).substring(0, 100) + "...");
+  let userKey = null;
+
   try {
     // Extract text from multiple sources (compat with JSON, form-data, query)
     const textFromBody = req.body?.text;
     const textFromFields = req.body?.fields?.text;
     const textFromQuery = req.query?.text;
-    
+
     const content = textFromBody || textFromFields || textFromQuery || "";
-    
+
     if (!content.trim()) {
-      // Debug logging for 400 errors
-      console.log("[TTS] 400 - Missing text. Debug info:");
-      console.log("  content-type:", req.get("content-type") || "not set");
-      console.log("  req.body keys:", Object.keys(req.body || {}));
-      if (req.body?.fields) {
-        console.log("  req.body.fields keys:", Object.keys(req.body.fields));
-      }
-      console.log("  req.query keys:", Object.keys(req.query || {}));
-      
+      console.log("[TTS] 400 - Missing text");
       return res.status(400).json({ error: "Missing text" });
     }
 
@@ -37,25 +32,41 @@ router.post("/generate", async (req, res) => {
     const voiceIdFromBody = req.body?.voiceId;
     const voiceIdFromFields = req.body?.fields?.voiceId;
     const voiceIdFromQuery = req.query?.voiceId;
-    let voiceId = voiceIdFromBody || voiceIdFromFields || voiceIdFromQuery || process.env.ELEVENLABS_VOICE_ID;
-    
-    // Fallback to "alloy" if voiceId is still missing/invalid (ElevenLabs default)
+    let voiceId = voiceIdFromBody || voiceIdFromFields || voiceIdFromQuery || process.env.ELEVENLABS_VOICE_ID; // "JBFqnCBsd6RMkjVDRZzb";
+
+    // Fallback if voiceId is missing/invalid
     if (!voiceId || typeof voiceId !== 'string' || voiceId.trim().length === 0) {
-      voiceId = "alloy";
+      voiceId = "JBFqnCBsd6RMkjVDRZzb"; // Default voice ID
     } else {
       voiceId = voiceId.trim();
     }
 
+    // Map legacy/frontend voiceIds to ElevenLabs IDs
+    const voiceMap = {
+      "us_female_emma": "JBFqnCBsd6RMkjVDRZzb",
+      "us_male_jake": "pNInz6obpgDQGcFmaJgB",
+      "uk_female_emma": "EXAVITQu4vr4xnSDxMaL", // Actually Sarah
+      "uk_male_oliver": "jsCqWAovK2LkecY7zXl4",
+      "us_female_ava": "Xb7hH8MSUJpSbSDYk0k2",
+      "us_male_noah": "M3m6rJZy5B3ItN0Fcuxy",
+      "uk_female_sophie": "LcfcDJNUP1GQjkzn1xUU",
+      "uk_male_harry": "SOYHLrjzK2X1ezoPC6cr"
+    };
+
+    if (voiceMap[voiceId]) {
+      voiceId = voiceMap[voiceId];
+    }
+
     // userKey is optional - only check subscription/limits if present
-    const userKey = resolveUserKey(req);
+    userKey = resolveUserKey(req);
     let isPro = false;
-    
+
     if (userKey) {
       // Check subscription status
       const subscription = getSubscription(userKey);
       if (subscription) {
         isPro = subscription.isPro;
-        
+
         // Check if subscription is expired
         if (subscription.currentPeriodEnd) {
           const periodEnd = new Date(subscription.currentPeriodEnd);
@@ -64,26 +75,23 @@ router.post("/generate", async (req, res) => {
             isPro = false;
           }
         }
-        
+
         // Ensure isPro matches status
         if (subscription.status && subscription.status !== "active" && subscription.status !== "trialing") {
           isPro = false;
         }
       }
-
-      // Track usage for free users (no blocking - TTS is available to all users)
-      // Note: Usage tracking is kept for analytics, but free users are not blocked
     }
 
     const apiKey = process.env.ELEVENLABS_API_KEY;
 
     if (!apiKey) {
+      console.error("[TTS] Missing ELEVENLABS_API_KEY");
       return res.status(500).json({
         error: "Missing ElevenLabs API key",
       });
     }
 
-    // TEMP log for local dev
     console.log("[TTS] generating", { voiceId, textPreview: content.slice(0, 40) });
 
     const response = await fetch(
@@ -102,72 +110,52 @@ router.post("/generate", async (req, res) => {
             similarity_boost: 0.8,
           },
         }),
+        signal: AbortSignal.timeout(15000) // 15s timeout
       }
     );
 
     if (!response.ok) {
       const errText = await response.text();
-      console.error("ElevenLabs failure:", errText);
-      
+      console.error("ElevenLabs failure:", response.status, errText);
+
       // Track TTS failure
       trackTTS("fail", userKey, "elevenlabs_error");
-      
-      // Capture to Sentry
-      const error = new Error(`ElevenLabs request failed: ${response.status}`);
-      captureException(error, {
-        userKey,
-        route: "/voice/generate",
-        requestId: req.requestId,
-        errorType: "elevenlabs_error",
-        extra: {
-          status: response.status,
-          responseText: errText.substring(0, 200), // Limit response text
-        },
-      });
-      
-      return res.status(500).json({ error: "ElevenLabs request failed" });
+
+      return res.status(502).json({ error: "ElevenLabs request failed", details: errText });
     }
 
     // Convert MP3 buffer into browser-playable blob
     const audioBuffer = await response.arrayBuffer();
-    
+
     // Calculate remaining count before incrementing (for accurate response)
     // Only track usage if userKey is present
     let remaining = -1; // -1 means unlimited (Pro users or no userKey)
     if (userKey && !isPro) {
       const currentCount = getTodayTTSCount(userKey);
-      // Only increment count after successful audio generation
       incrementTodayTTSCount(userKey);
       remaining = Math.max(0, FREE_DAILY_TTS_LIMIT - currentCount - 1);
     }
-    
+
     // Set headers with remaining count information
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("X-TTS-Remaining", remaining.toString());
-    res.setHeader("X-TTS-Limit", FREE_DAILY_TTS_LIMIT.toString());
-    
-    // Log success
-    console.log(`[TTS] ok len=${content.length}`);
-    
+    res.set("Content-Type", "audio/mpeg");
+    res.set("X-TTS-Remaining", remaining.toString());
+    res.set("X-TTS-Limit", FREE_DAILY_TTS_LIMIT.toString());
+    res.set("Cache-Control", "no-cache");
+
+    console.log(`[TTS] ok len=${audioBuffer.byteLength}`);
+
     // Track TTS success
     trackTTS("success", userKey);
-    
+
+    // Send binary audio
     res.send(Buffer.from(audioBuffer));
   } catch (err) {
     console.error("Voice generation error:", err);
-    
+
     // Track TTS failure
     trackTTS("fail", userKey, err.name || "unknown_error");
-    
-    // Capture to Sentry
-    captureException(err, {
-      userKey,
-      route: "/voice/generate",
-      requestId: req.requestId,
-      errorType: err.name || "unknown",
-    });
-    
-    res.status(500).json({ error: "Voice generation failed" });
+
+    res.status(500).json({ error: "Voice generation failed", details: err.message });
   }
 });
 

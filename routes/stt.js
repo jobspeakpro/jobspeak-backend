@@ -14,8 +14,8 @@ import { getUsage, recordAttempt, isBlocked } from "../services/sttUsageStore.js
 import { resolveUserKey } from "../middleware/resolveUserKey.js";
 import ffmpegStatic from "ffmpeg-static";
 import crypto from "crypto";
-// import { captureException } from "../services/sentry.js"; // REMOVED to fix crash
-const captureException = (err, context) => console.error("[SENTRY FALLBACK]", err, context);
+// Sentry removed
+const captureException = (err, context) => console.error("[SENTRY_FALLBACK]", err, context);
 import { trackSTT, trackLimitHit } from "../services/analytics.js";
 
 const __filename = fileURLToPath(import.meta.url);

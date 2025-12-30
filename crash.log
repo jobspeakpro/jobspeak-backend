@@ -1,0 +1,10 @@
+file:///C:/Users/Admin/Desktop/SAAS%20Projects/JobSpeakPro/jobspeak-backend/routes/ai.js:17
+import dotenv from "dotenv";
+^^^^^^^^^^^^^
+
+SyntaxError: Identifier 'dotenv' has already been declared
+    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:167:18)
+    at callTranslator (node:internal/modules/esm/loader:285:14)
+    at ModuleLoader.moduleProvider (node:internal/modules/esm/loader:291:30)
+
+Node.js v20.11.1

@@ -104,6 +104,15 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_analytics_eventName ON analytics_events(eventName);
   CREATE INDEX IF NOT EXISTS idx_analytics_userKey ON analytics_events(userKey);
   CREATE INDEX IF NOT EXISTS idx_analytics_createdAt ON analytics_events(createdAt DESC);
+
+  CREATE TABLE IF NOT EXISTS question_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userKey TEXT NOT NULL,
+    questionId TEXT NOT NULL,
+    seenAt TEXT NOT NULL
+  );
+  
+  CREATE INDEX IF NOT EXISTS idx_question_history_user ON question_history(userKey, seenAt DESC);
 `);
 
 export const saveSession = (userKey, transcript, aiResponse, score = null, idempotencyKey = null) => {
@@ -111,13 +120,13 @@ export const saveSession = (userKey, transcript, aiResponse, score = null, idemp
     INSERT INTO sessions (userKey, transcript, aiResponse, score, createdAt, idempotencyKey)
     VALUES (?, ?, ?, ?, ?, ?)
   `);
-  
+
   // Ensure createdAt is always ISO format (YYYY-MM-DDTHH:mm:ss.sssZ)
   const createdAt = new Date().toISOString();
-  
+
   try {
     const result = stmt.run(userKey, transcript, aiResponse, score, createdAt, idempotencyKey);
-    
+
     // Return session with all required fields: userKey, transcript, aiResponse, score, createdAt (ISO)
     return {
       id: result.lastInsertRowid,
@@ -136,7 +145,7 @@ export const saveSession = (userKey, transcript, aiResponse, score = null, idemp
         FROM sessions
         WHERE idempotencyKey = ? AND userKey = ?
       `).get(idempotencyKey, userKey);
-      
+
       if (existing) {
         // Ensure createdAt is ISO format in returned session
         return {
@@ -160,7 +169,7 @@ export const saveSessionWithIdempotency = (userKey, transcript, aiResponse, scor
     // No idempotency key provided, save normally
     return saveSession(userKey, transcript, aiResponse, score);
   }
-  
+
   // Check if session with this idempotency key already exists for this userKey
   // CRITICAL: Always verify userKey to prevent session leakage
   const existing = db.prepare(`
@@ -168,11 +177,11 @@ export const saveSessionWithIdempotency = (userKey, transcript, aiResponse, scor
     FROM sessions
     WHERE idempotencyKey = ? AND userKey = ?
   `).get(idempotencyKey, userKey);
-  
+
   if (existing) {
     return existing; // Return existing session (idempotent) - only if userKey matches
   }
-  
+
   // Save new session with idempotency key
   return saveSession(userKey, transcript, aiResponse, score, idempotencyKey);
 };
@@ -185,7 +194,7 @@ export const getSessions = (userKey, limit = 10) => {
     ORDER BY createdAt DESC
     LIMIT ?
   `);
-  
+
   // Returns sessions ordered by newest first (createdAt DESC)
   // createdAt is stored as ISO format TEXT in SQLite
   return stmt.all(userKey, limit);
@@ -197,7 +206,7 @@ export const getSessionById = (id, userKey) => {
     FROM sessions
     WHERE id = ? AND userKey = ?
   `);
-  
+
   // Validates userKey - only returns session if both id and userKey match
   // createdAt is stored as ISO format TEXT in SQLite
   return stmt.get(id, userKey);
@@ -221,10 +230,10 @@ export const getSubscription = (userKey) => {
     FROM subscriptions
     WHERE userKey = ?
   `);
-  
+
   const row = stmt.get(userKey);
   if (!row) return null;
-  
+
   return {
     userKey: row.userKey,
     isPro: Boolean(row.isPro),
@@ -246,7 +255,7 @@ export const upsertSubscription = (userKey, subscriptionData) => {
       status = excluded.status,
       currentPeriodEnd = excluded.currentPeriodEnd
   `);
-  
+
   stmt.run(
     userKey,
     subscriptionData.isPro ? 1 : 0,
@@ -263,7 +272,7 @@ export const updateSubscriptionStatus = (stripeSubscriptionId, status, currentPe
     SET status = ?, currentPeriodEnd = ?, isPro = ?
     WHERE stripeSubscriptionId = ?
   `);
-  
+
   // isPro is true only if status is active/trialing AND period hasn't ended
   let isPro = status === "active" || status === "trialing";
   if (currentPeriodEnd) {
@@ -273,7 +282,7 @@ export const updateSubscriptionStatus = (stripeSubscriptionId, status, currentPe
       isPro = false; // Expired subscriptions are not Pro
     }
   }
-  
+
   stmt.run(status, currentPeriodEnd, isPro ? 1 : 0, stripeSubscriptionId);
 };
 
@@ -283,10 +292,10 @@ export const getSubscriptionByStripeId = (stripeSubscriptionId) => {
     FROM subscriptions
     WHERE stripeSubscriptionId = ?
   `);
-  
+
   const row = stmt.get(stripeSubscriptionId);
   if (!row) return null;
-  
+
   return {
     userKey: row.userKey,
     isPro: Boolean(row.isPro),
@@ -301,7 +310,7 @@ export const getSubscriptionByStripeId = (stripeSubscriptionId) => {
 export const getTodaySessionCount = (userKey) => {
   // Get today's date in UTC (YYYY-MM-DD) - resets at midnight UTC
   const todayUTC = getTodayUTC();
-  
+
   // Query sessions where the date part (YYYY-MM-DD) of createdAt matches today
   // createdAt is stored as ISO UTC string, so we extract the date part for comparison
   // This ensures consistent daily reset at midnight UTC regardless of server timezone
@@ -310,7 +319,7 @@ export const getTodaySessionCount = (userKey) => {
     FROM sessions
     WHERE userKey = ? AND substr(createdAt, 1, 10) = ?
   `);
-  
+
   const row = stmt.get(userKey, todayUTC);
   return row ? row.count : 0;
 };
@@ -330,7 +339,7 @@ export const recordWebhookEvent = (eventId, eventType, subscriptionId = null, us
     INSERT OR IGNORE INTO webhook_events (eventId, eventType, processedAt, subscriptionId, userKey)
     VALUES (?, ?, ?, ?, ?)
   `);
-  
+
   const processedAt = new Date().toISOString();
   stmt.run(eventId, eventType, processedAt, subscriptionId, userKey);
 };
@@ -339,13 +348,13 @@ export const recordWebhookEvent = (eventId, eventType, subscriptionId = null, us
 export const getTodayTTSCount = (userKey) => {
   // Get today's date in UTC (YYYY-MM-DD) - resets at midnight UTC
   const todayUTC = getTodayUTC();
-  
+
   // Query TTS usage for today
   const stmt = db.prepare(`
     SELECT count FROM tts_usage
     WHERE userKey = ? AND date = ?
   `);
-  
+
   const row = stmt.get(userKey, todayUTC);
   return row ? row.count : 0;
 };
@@ -353,7 +362,7 @@ export const getTodayTTSCount = (userKey) => {
 export const incrementTodayTTSCount = (userKey) => {
   // Get today's date in UTC (YYYY-MM-DD)
   const todayUTC = getTodayUTC();
-  
+
   // Insert or update: increment count for today
   const stmt = db.prepare(`
     INSERT INTO tts_usage (userKey, date, count)
@@ -361,31 +370,24 @@ export const incrementTodayTTSCount = (userKey) => {
     ON CONFLICT(userKey, date) DO UPDATE SET
       count = count + 1
   `);
-  
+
   stmt.run(userKey, todayUTC);
-  
+
   // Return the new count
   return getTodayTTSCount(userKey);
 };
 
 // STT usage tracking functions
-// 
-// Daily speaking attempt counting rule:
-// - ONLY successful POST /api/stt transcriptions consume 1 daily attempt
-// - Failed STT requests do NOT consume attempts
-// - /voice/generate does NOT consume speaking attempts (has separate TTS limit)
-// - /ai/micro-demo does NOT consume speaking attempts
-// - Resume endpoints do NOT consume speaking attempts
 export const getTodaySTTCount = (userKey) => {
   // Get today's date in UTC (YYYY-MM-DD) - resets at midnight UTC
   const todayUTC = getTodayUTC();
-  
+
   // Query STT usage for today
   const stmt = db.prepare(`
     SELECT count FROM stt_usage
     WHERE userKey = ? AND date = ?
   `);
-  
+
   const row = stmt.get(userKey, todayUTC);
   return row ? row.count : 0;
 };
@@ -393,7 +395,7 @@ export const getTodaySTTCount = (userKey) => {
 export const incrementTodaySTTCount = (userKey) => {
   // Get today's date in UTC (YYYY-MM-DD)
   const todayUTC = getTodayUTC();
-  
+
   // Insert or update: increment count for today
   const stmt = db.prepare(`
     INSERT INTO stt_usage (userKey, date, count)
@@ -401,9 +403,9 @@ export const incrementTodaySTTCount = (userKey) => {
     ON CONFLICT(userKey, date) DO UPDATE SET
       count = count + 1
   `);
-  
+
   stmt.run(userKey, todayUTC);
-  
+
   // Return the new count
   return getTodaySTTCount(userKey);
 };
@@ -414,12 +416,34 @@ export const recordAnalyticsEvent = (eventName, properties = {}, userKey = null)
     INSERT INTO analytics_events (eventName, userKey, properties, createdAt)
     VALUES (?, ?, ?, ?)
   `);
-  
+
   const createdAt = new Date().toISOString();
   const propertiesJson = JSON.stringify(properties);
-  
+
   stmt.run(eventName, userKey || null, propertiesJson, createdAt);
 };
 
-export default db;
+// Question History functions
+export const recordQuestionSeen = (userKey, questionId) => {
+  const stmt = db.prepare(`
+    INSERT INTO question_history (userKey, questionId, seenAt)
+    VALUES (?, ?, ?)
+  `);
 
+  const seenAt = new Date().toISOString();
+  stmt.run(userKey, questionId, seenAt);
+};
+
+export const getRecentQuestionIds = (userKey, limit = 20) => {
+  const stmt = db.prepare(`
+    SELECT questionId FROM question_history
+    WHERE userKey = ?
+    ORDER BY seenAt DESC
+    LIMIT ?
+  `);
+
+  const rows = stmt.all(userKey, limit);
+  return rows.map(r => r.questionId);
+};
+
+export default db;

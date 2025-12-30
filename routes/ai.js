@@ -5,7 +5,7 @@ import crypto from "crypto";
 import { askGPT } from "../services/openaiService.js";
 import { rateLimiter } from "../middleware/rateLimiter.js";
 import { saveSessionWithIdempotency } from "../services/db.js";
-import { captureException } from "../services/sentry.js";
+const captureException = (err, context) => console.error("[SENTRY_FALLBACK]", err, context);
 import { trackRewrite } from "../services/analytics.js";
 import { getRecentQuestionIds, recordQuestionSeen } from "../services/db.js";
 import { getProfile } from "../services/supabase.js";

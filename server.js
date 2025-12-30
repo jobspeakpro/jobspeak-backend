@@ -18,14 +18,15 @@ import usageRoutes from "./routes/usage.js";
 import voiceRoutes from "./voiceRoute.js";
 import { requestLogger } from "./middleware/logger.js";
 import { errorHandler } from "./middleware/errorHandler.js";
-import { initSentry, sentryRequestHandler, sentryErrorHandler } from "./services/sentry.js";
+// Sentry init removed
+const sentryInit = null;
 
 dotenv.config();
 
-// Initialize Sentry BEFORE creating Express app (async, but we don't await - it's non-blocking)
-initSentry().catch(err => {
-  console.error("Failed to initialize Sentry:", err.message);
-});
+// Sentry init removed to fix crash
+// initSentry().catch(err => {
+//   console.error("Failed to initialize Sentry:", err.message);
+// });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -41,10 +42,10 @@ if (!fs.existsSync(tmpDir)) {
 }
 
 // ------------ MIDDLEWARE ------------
-// Sentry request handler (must be first, before other middleware)
-if (process.env.SENTRY_DSN) {
-  app.use(sentryRequestHandler);
-}
+// Sentry request handler removed
+// if (process.env.SENTRY_DSN) {
+//   app.use(sentryRequestHandler);
+// }
 
 // Webhook endpoint needs raw body for signature verification - must be before express.json()
 app.use("/api/billing/webhook", express.raw({ type: "application/json" }));
@@ -52,6 +53,23 @@ app.use("/api/billing/webhook", express.raw({ type: "application/json" }));
 // Body size limits (10MB for JSON, 25MB for file uploads handled by multer)
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Custom error handler for JSON parsing errors on calibration endpoint
+// This ensures malformed JSON returns 200 with default response instead of 400
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    // JSON parsing error
+    if (req.url === '/ai/calibrate-difficulty' || req.path === '/calibrate-difficulty') {
+      console.log('[CALIBRATE] Malformed JSON body, returning default response');
+      return res.status(200).json({
+        recommended: "normal",
+        reason: "Not enough signal to assess—defaulting to Normal."
+      });
+    }
+    // For other routes, let the default error handler deal with it
+  }
+  next(err);
+});
 
 // Request logging
 app.use(requestLogger);
@@ -78,12 +96,12 @@ const corsOptions = {
     if (!origin) {
       return callback(null, true);
     }
-    
+
     // Development mode: allow Vite frontend origins explicitly
     if (isDevelopment && viteOrigins.includes(origin)) {
       return callback(null, true);
     }
-    
+
     // Development mode: allow other localhost origins (for backwards compatibility)
     if (isDevelopment) {
       const localhostPatterns = [
@@ -91,27 +109,27 @@ const corsOptions = {
         /^http:\/\/127\.0\.0\.1:\d+$/,
         /^http:\/\/0\.0\.0\.0:\d+$/,
       ];
-      
+
       if (localhostPatterns.some(pattern => pattern.test(origin))) {
         return callback(null, true);
       }
     }
-    
+
     // Allow production origins
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
-    
+
     // Allow exact match of FRONTEND_ORIGIN if set (for backwards compatibility)
     if (frontendOrigin && origin === frontendOrigin) {
       return callback(null, true);
     }
-    
+
     // Development: log blocked origins
     if (isDevelopment) {
       console.warn(`[CORS] Blocked origin: ${origin}${frontendOrigin ? ` (Expected: ${frontendOrigin})` : " (No FRONTEND_ORIGIN set)"}`);
     }
-    
+
     // Block all other origins
     return callback(null, false);
   },
@@ -132,10 +150,19 @@ app.get("/", (req, res) => {
 
 // GET /health - Production health check endpoint
 app.get("/health", (req, res) => {
-  res.status(200).json({ 
+  res.status(200).json({
     ok: true,
     timestamp: new Date().toISOString(),
     service: "JobSpeakPro Backend"
+  });
+});
+
+// Alias for frontend compatibility
+app.get("/api/health", (req, res) => {
+  res.status(200).json({
+    ok: true,
+    timestamp: new Date().toISOString(),
+    service: "JobSpeakPro Backend (Alias)"
   });
 });
 
@@ -166,24 +193,25 @@ app.use((req, res) => {
   res.status(404).json({ error: "Not found" });
 });
 
-// Sentry error handler (must be before errorHandler)
-if (process.env.SENTRY_DSN) {
-  app.use(sentryErrorHandler);
-}
+// Sentry error handler removed
+// if (process.env.SENTRY_DSN) {
+//   app.use(sentryErrorHandler);
+// }
 
 // Centralized error handler (must be last)
 app.use(errorHandler);
 
 // Railway requires explicit binding to 0.0.0.0 to accept external connections
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`JobSpeakPro backend listening on port ${PORT}`);
+  console.log(`Backend listening on http://127.0.0.1:${PORT}`);
+  console.log("[BACKEND] listening", { port: PORT, baseUrl: `http://127.0.0.1:${PORT}` });
 }).on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     const isWindows = process.platform === 'win32';
-    
+
     console.error('\n❌ Port already in use!');
     console.error(`Port ${PORT} is already being used by another process.\n`);
-    
+
     if (isWindows) {
       console.error('🔧 Windows detected. Run these commands to resolve:\n');
       console.error(`  1. Find the process using port ${PORT}:`);
@@ -198,7 +226,7 @@ app.listen(PORT, "0.0.0.0", () => {
       console.error(`  2. Kill it: kill -9 $(lsof -ti:${PORT})`);
       console.error(`  3. Retry: npm run dev\n`);
     }
-    
+
     process.exit(1);
   } else {
     // Re-throw other errors

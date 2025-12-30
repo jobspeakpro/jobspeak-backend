@@ -5,7 +5,7 @@ import dotenv from "dotenv";
 import { resolveUserKey } from "../middleware/resolveUserKey.js";
 import { getSubscription, upsertSubscription, updateSubscriptionStatus, getSubscriptionByStripeId, isWebhookEventProcessed, recordWebhookEvent, getTodaySessionCount } from "../services/db.js";
 import { getProfile, upsertProfile } from "../services/supabase.js";
-import { captureException } from "../services/sentry.js";
+const captureException = (err, context) => console.error("[SENTRY_FALLBACK]", err, context);
 import { trackBilling, trackUpgrade } from "../services/analytics.js";
 
 dotenv.config();
