@@ -349,7 +349,7 @@ OUTPUT SCHEMA (JSON):
     ],
     "hiringManagerHeard": "string (1 sentence summary, MUST quote specific phrase)",
     "vocabulary": [
-      { "word": "string", "definition": "string", "usage": "string" }
+      { "word": "string", "partOfSpeech": "noun|verb|adj|etc", "definition": "string", "usage": "string" }
     ]
   }
 }
@@ -367,11 +367,12 @@ FEEDBACK REQUIREMENTS:
     - MUST include a STAR structure suggestion.
     - MUST include a prompt to add a specific metric.
 - "hiringManagerHeard": MUST quote a phrase that stood out.
+- "vocabulary": Include 2 advanced, relevant terms. "partOfSpeech" is required (e.g., "noun", "verb").
 `;
 
       const jsonResponse = await askGPT({
         prompt: `Analyze and rewrite this interview answer:
-${text}`,
+${text} `,
         systemPrompt: SYSTEM_PROMPT,
         response_format: { type: "json_object" }
       });
@@ -493,7 +494,7 @@ ${text}`,
       // Generate idempotency key: hash of userKey + normalized text
       // Normalize text by trimming and lowercasing to catch near-duplicates
       const normalizedText = text.trim().toLowerCase().replace(/\s+/g, ' ');
-      const idempotencyData = `${userKey.trim()}:${normalizedText}`;
+      const idempotencyData = `${userKey.trim()}:${normalizedText} `;
       const idempotencyKey = crypto
         .createHash('sha256')
         .update(idempotencyData)
@@ -521,7 +522,7 @@ ${text}`,
   if (userKey && !isPro) {
     // We can use the same logic we used for idempotency above if available, or generate new
     const normalizedText = text.trim().toLowerCase().replace(/\s+/g, ' ');
-    const idempotencyData = `${userKey.trim()}:${normalizedText}`;
+    const idempotencyData = `${userKey.trim()}:${normalizedText} `;
     const attemptId = crypto.createHash('sha256').update(idempotencyData).digest('hex').substring(0, 32);
 
     const usage = recordAttempt(userKey, attemptId, "practice");
@@ -535,7 +536,7 @@ ${text}`,
     };
 
     if (usage.wasNew) {
-      console.log(`[AI/micro-demo] INCREMENTED PRACTICE - Used: ${usage.used}/${usage.limit}`);
+      console.log(`[AI / micro - demo] INCREMENTED PRACTICE - Used: ${usage.used}/${usage.limit}`);
     } else {
       console.log(`[AI/micro-demo] IDEMPOTENT PRACTICE - Already counted.`);
     }
