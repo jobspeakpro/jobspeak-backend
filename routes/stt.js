@@ -14,7 +14,8 @@ import { getUsage, recordAttempt, isBlocked } from "../services/sttUsageStore.js
 import { resolveUserKey } from "../middleware/resolveUserKey.js";
 import ffmpegStatic from "ffmpeg-static";
 import crypto from "crypto";
-import { captureException } from "../services/sentry.js";
+// import { captureException } from "../services/sentry.js"; // REMOVED to fix crash
+const captureException = (err, context) => console.error("[SENTRY FALLBACK]", err, context);
 import { trackSTT, trackLimitHit } from "../services/analytics.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -24,8 +25,9 @@ const execFileAsync = promisify(execFile);
 
 const router = express.Router();
 
-// Daily speaking attempt limit is now managed by sttUsageStore.js (LIMIT = 3)
-// Only successful STT transcriptions consume attempts (not /voice/generate or /ai/micro-demo)
+// STT is now unlimited (tracked as 'stt' type)
+// Practice limit (3/day) is enforced in /ai/micro-demo handling
+
 
 /**
  * Helper function to test ffmpeg binary using spawn
@@ -129,7 +131,7 @@ let ffmpegPathResolved = false;
   try {
     const result = await getFfmpegPath();
     ffmpegPathResolved = true;
-    
+
     if (result.path) {
       ffmpegPath = result.path;
       ffmpegVersion = result.version;
@@ -213,24 +215,24 @@ const getFilenameWithExtension = (mimetype) => {
 
 // Helper function to check if file is webm
 const isWebmFile = (mimetype, originalname) => {
-  return mimetype === "audio/webm" || 
-         mimetype === "video/webm" ||
-         (originalname && originalname.toLowerCase().endsWith(".webm"));
+  return mimetype === "audio/webm" ||
+    mimetype === "video/webm" ||
+    (originalname && originalname.toLowerCase().endsWith(".webm"));
 };
 
 // Helper function to check if file needs transcoding (webm/ogg only)
 const needsTranscoding = (mimetype) => {
-  return mimetype === "audio/webm" || 
-         mimetype === "video/webm" ||
-         mimetype === "audio/ogg" || 
-         mimetype === "video/ogg";
+  return mimetype === "audio/webm" ||
+    mimetype === "video/webm" ||
+    mimetype === "audio/ogg" ||
+    mimetype === "video/ogg";
 };
 
 // Helper function to transcode webm/ogg to WAV using ffmpeg (16kHz mono)
 // Uses execFile from node:child_process for Windows compatibility
 async function transcodeToWav(inputPath, mimetype) {
   const outputPath = inputPath + '.wav';
-  
+
   // Wait for ffmpeg path resolution if still in progress
   if (!ffmpegPathResolved) {
     // Wait up to 2 seconds for initialization
@@ -240,26 +242,26 @@ async function transcodeToWav(inputPath, mimetype) {
       waited += 100;
     }
   }
-  
+
   // Check if ffmpeg is available
   if (!ffmpegPath) {
     const error = new Error("FFMPEG_NOT_AVAILABLE: No valid ffmpeg found. Install ffmpeg or set FFMPEG_PATH environment variable.");
     error.code = "FFMPEG_NOT_AVAILABLE";
     throw error;
   }
-  
+
   console.log(`[STT] Transcoding -> WAV starting`);
   console.log(`[STT] Input file: ${inputPath}`);
   console.log(`[STT] Output file: ${outputPath}`);
   console.log(`[STT] FFmpeg path: ${ffmpegPath}`);
-  
+
   // Verify input file exists and get size
   if (!fs.existsSync(inputPath)) {
     throw new Error(`Input file not found: ${inputPath}`);
   }
   const inputStats = fs.statSync(inputPath);
   console.log(`[STT] Input file size: ${inputStats.size} bytes`);
-  
+
   // Build ffmpeg command args: -y -i <input> -ac 1 -ar 16000 -f wav <output.wav>
   const ffmpegArgs = [
     '-y',                    // Overwrite output file if it exists
@@ -269,16 +271,16 @@ async function transcodeToWav(inputPath, mimetype) {
     '-f', 'wav',            // WAV format
     outputPath              // Output file
   ];
-  
+
   const commandLine = `${ffmpegPath} ${ffmpegArgs.join(' ')}`;
   console.log(`[STT] FFmpeg command: ${commandLine}`);
-  
+
   try {
     // Run ffmpeg using execFileAsync with windowsHide for Windows compatibility
     const { stdout, stderr } = await execFileAsync(ffmpegPath, ffmpegArgs, {
       windowsHide: true
     });
-    
+
     // Log stdout/stderr if present (usually minimal for ffmpeg)
     if (stdout) {
       console.log(`[STT] FFmpeg stdout: ${stdout.substring(0, 500)}`);
@@ -286,24 +288,24 @@ async function transcodeToWav(inputPath, mimetype) {
     if (stderr) {
       console.log(`[STT] FFmpeg stderr: ${stderr.substring(0, 500)}`);
     }
-    
+
     // Verify output file was created and has size > 0
     if (!fs.existsSync(outputPath)) {
       console.error(`[STT] ERROR: Output file not found after transcoding: ${outputPath}`);
       throw new Error("Transcoding completed but output file not found");
     }
-    
+
     const outputStats = fs.statSync(outputPath);
     if (outputStats.size === 0) {
       console.error(`[STT] ERROR: Output file is empty: ${outputPath}`);
       throw new Error("Transcoding completed but output file is empty");
     }
-    
+
     console.log(`[STT] Transcoding -> WAV complete`);
     console.log(`[STT] Output file size: ${outputStats.size} bytes`);
     console.log(`[STT] Output file path: ${outputPath}`);
     return outputPath;
-    
+
   } catch (err) {
     // Capture all error details for debugging
     const errorDetails = {
@@ -315,7 +317,7 @@ async function transcodeToWav(inputPath, mimetype) {
       ffmpegPath: ffmpegPath || null,
       args: ffmpegArgs || null,
     };
-    
+
     // Robust error logging - log all captured details
     console.error(`[STT] FFmpeg execFile error: ${errorDetails.message}`);
     console.error(`[STT] FFmpeg path: ${errorDetails.ffmpegPath}`);
@@ -332,7 +334,7 @@ async function transcodeToWav(inputPath, mimetype) {
     if (err.stack) {
       console.error(`[STT] Error stack: ${err.stack}`);
     }
-    
+
     // Attach error details to error object for use in catch handler
     const transcodeError = new Error(`TRANSCODE_FAILED: ${errorDetails.message || 'Unknown error'}`);
     transcodeError.transcodeDetails = errorDetails;
@@ -345,30 +347,30 @@ const handleMulterError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     // Clean up any partial uploads
     if (req.file) {
-      fs.unlink(req.file.path, () => {});
+      fs.unlink(req.file.path, () => { });
     }
-    
+
     if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ 
-        error: "File too large", 
-        details: "Maximum file size is 25MB" 
+      return res.status(400).json({
+        error: "File too large",
+        details: "Maximum file size is 25MB"
       });
     }
-    
+
     if (err.code === 'LIMIT_FILE_COUNT') {
-      return res.status(400).json({ 
-        error: "Too many files", 
-        details: "Only one file is allowed" 
+      return res.status(400).json({
+        error: "Too many files",
+        details: "Only one file is allowed"
       });
     }
-    
+
     // Generic multer error
-    return res.status(400).json({ 
-      error: "File upload error", 
-      details: err.message 
+    return res.status(400).json({
+      error: "File upload error",
+      details: err.message
     });
   }
-  
+
   // Pass non-multer errors to next handler
   next(err);
 };
@@ -378,12 +380,12 @@ const handleMulterError = (err, req, res, next) => {
 const validateUserKey = (req, res, next) => {
   // Resolve userKey from multiple sources
   const userKey = resolveUserKey(req);
-  
+
   // Validate userKey is present
   if (!userKey) {
     // Clean up uploaded file if present
     if (req.file) {
-      fs.unlink(req.file.path, () => {});
+      fs.unlink(req.file.path, () => { });
     }
     return res.status(400).json({ error: "Missing userKey" });
   }
@@ -401,12 +403,12 @@ const uploadAudio = (req, res, next) => {
     { name: 'audio', maxCount: 1 },
     { name: 'file', maxCount: 1 }
   ]);
-  
+
   uploadFields(req, res, (err) => {
     if (err) {
       return next(err);
     }
-    
+
     // Normalize req.files to req.file for compatibility
     // Check "audio" first, then "file"
     if (req.files) {
@@ -416,7 +418,7 @@ const uploadAudio = (req, res, next) => {
         req.file = req.files['file'][0];
       }
     }
-    
+
     next();
   });
 };
@@ -441,9 +443,9 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
   // Track files for cleanup
   const originalFilePath = req.file?.path;
   let outputWavPath = null;
-  
+
   console.log("[STT] POST /api/stt begins");
-  
+
   try {
     if (!req.file) {
       console.log("[STT] POST /api/stt ends with status 400 (no file)");
@@ -452,7 +454,7 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
 
     // Resolve userKey (already validated by middleware)
     const userKey = req.userKey;
-    
+
     // Resolve attemptId from multiple sources, generate UUID if missing
     // Note: Multer puts form-data fields directly in req.body, not req.body.fields
     let attemptId = req.header('x-attempt-id') || req.body?.attemptId || req.query?.attemptId;
@@ -469,7 +471,7 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     let isPro = false;
     if (subscription) {
       isPro = subscription.isPro;
-      
+
       // Check if subscription is expired
       if (subscription.currentPeriodEnd) {
         const periodEnd = new Date(subscription.currentPeriodEnd);
@@ -478,39 +480,19 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
           isPro = false;
         }
       }
-      
+
       // Ensure isPro matches status
       if (subscription.status && subscription.status !== "active" && subscription.status !== "trialing") {
         isPro = false;
       }
     }
 
-    // Free users: check daily limit BEFORE processing
-    // Only successful transcriptions will increment the count (see below)
+    // Free users: WE NO LONGER BLOCK STT.
+    // Limits are enforced at the practice submission level (/ai/micro-demo).
+    // We still track STT usage for analytics/abuse monitoring but it is unlimited.
     if (!isPro) {
-      const usage = getUsage(userKey);
-      
-      // Log current usage for debugging
-      console.log(`[STT] Usage check - userKey: ${userKey}, used: ${usage.used}, limit: ${usage.limit}, route: /api/stt`);
-      
-      // Block if already at limit (used >= 3)
-      if (usage.blocked) {
-        console.log(`[STT] BLOCKED - Daily limit reached: ${usage.used}/${usage.limit} attempts used`);
-        // Track limit hit event
-        trackLimitHit(userKey, "daily");
-        return res.status(429).json({
-          message: "Daily limit of 3 speaking attempts reached. Upgrade to Pro for unlimited access.",
-          upgrade: true,
-          usage: {
-            used: usage.used,
-            limit: usage.limit,
-            remaining: usage.remaining,
-            blocked: usage.blocked,
-          },
-        });
-      }
-      
-      console.log(`[STT] ALLOWED - Current usage: ${usage.used}/${usage.limit}, will allow this attempt (increment on success only)`);
+      const usage = getUsage(userKey, "stt");
+      console.log(`[STT] Usage check - userKey: ${userKey}, used: ${usage.used}, limit: Unlimited, route: /api/stt`);
     }
 
     // Log original file metadata
@@ -530,29 +512,27 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     if (!process.env.OPENAI_API_KEY) {
       missingKeys.push("OPENAI_API_KEY");
     }
-    
+
     if (missingKeys.length > 0) {
       console.error("STT ERROR: Missing required environment keys:", missingKeys);
-      return res.status(500).json({ 
-        error: "STT misconfigured", 
-        missing: missingKeys
+      return res.status(503).json({
+        error: "stt_unavailable"
       });
     }
 
     if (!openai) {
       console.error("STT ERROR: OpenAI client not initialized - missing OPENAI_API_KEY");
-      return res.status(500).json({ 
-        error: "STT misconfigured", 
-        missing: ["OPENAI_API_KEY"]
+      return res.status(503).json({
+        error: "stt_unavailable"
       });
     }
 
     // Check file size - if 0 or < 1000 bytes, return 400 immediately
     if (!fileSize || fileSize < 1000) {
       console.error("STT ERROR: File too small - size:", fileSize);
-      return res.status(400).json({ 
-        error: "empty_audio_upload", 
-        size: fileSize 
+      return res.status(400).json({
+        error: "empty_audio_upload",
+        size: fileSize
       });
     }
 
@@ -561,10 +541,10 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     let audioFilePath = req.file.path;
     let filenameSent = null;
     let mimeSent = null;
-    
+
     if (requiresTranscoding) {
       console.log(`[STT] Transcoding required for ${mimetype}`);
-      
+
       // Wait for ffmpeg path resolution if still in progress
       if (!ffmpegPathResolved) {
         let waited = 0;
@@ -573,64 +553,62 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
           waited += 100;
         }
       }
-      
+
       // Check if ffmpeg is available
       if (!ffmpegPath) {
         console.error("[STT] ERROR: FFMPEG_NOT_AVAILABLE - cannot transcode", mimetype);
-        return res.status(500).json({ 
-          error: "FFMPEG_NOT_AVAILABLE",
-          message: "Install FFmpeg: winget install Gyan.FFmpeg (or set FFMPEG_PATH=C:\\path\\ffmpeg.exe)"
+        return res.status(503).json({
+          error: "stt_unavailable"
         });
       }
-      
+
       // Create deterministic output path
       outputWavPath = `${req.file.path}.wav`;
       console.log(`[STT] Output WAV path: ${outputWavPath}`);
-      
+
       try {
         // Transcode webm/ogg to WAV (16kHz mono)
         const transcodedPath = await transcodeToWav(req.file.path, mimetype);
-        
+
         // Verify output exists and size > 0
         if (!fs.existsSync(transcodedPath)) {
           console.error("[STT] ERROR: WAV transcoding failed - output file not found");
-          return res.status(500).json({ 
-            error: "stt_failed", 
+          return res.status(500).json({
+            error: "stt_failed",
             details: "Failed to transcode to WAV - output file not found"
           });
         }
-        
+
         const wavStats = fs.statSync(transcodedPath);
         if (wavStats.size === 0) {
           console.error("[STT] ERROR: WAV file is empty");
-          return res.status(500).json({ 
-            error: "stt_failed", 
+          return res.status(500).json({
+            error: "stt_failed",
             details: "Transcoded WAV file is empty"
           });
         }
-        
+
         console.log(`[STT] Output WAV size: ${wavStats.size} bytes`);
-        
+
         // Set the file to use for OpenAI
         audioFilePath = transcodedPath;
         filenameSent = "audio.wav";
         mimeSent = "audio/wav";
-        
+
       } catch (transcodeErr) {
         console.error("[STT] ERROR: Transcoding failed:", transcodeErr.message);
         console.error("[STT] Transcoding error stack:", transcodeErr.stack);
-        
+
         // Handle FFMPEG_NOT_AVAILABLE error
         if (transcodeErr.code === "FFMPEG_NOT_AVAILABLE" || transcodeErr.message?.includes("FFMPEG_NOT_AVAILABLE")) {
-          return res.status(500).json({ 
-            error: "FFMPEG_NOT_AVAILABLE",
-            message: "Install FFmpeg: winget install Gyan.FFmpeg (or set FFMPEG_PATH=C:\\path\\ffmpeg.exe)"
+          return res.status(503).json({
+            error: "stt_unavailable"
           });
         }
-        
+
         // Extract error details if available
         const errorDetails = transcodeErr.transcodeDetails || {};
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: "TRANSCODE_FAILED",
           message: errorDetails.message || transcodeErr?.message || null,
           code: errorDetails.code || transcodeErr?.code || null,
@@ -682,11 +660,11 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
       if (openaiErr.response) {
         console.error("[STT]   OpenAI response:", openaiErr.response);
       }
-      
+
       // Track STT failure
       const errorType = openaiErr.status === 400 ? "openai_400" : "openai_error";
       trackSTT("fail", userKey, errorType);
-      
+
       // Capture to Sentry
       captureException(openaiErr, {
         userKey,
@@ -699,65 +677,61 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
           fileSize: req.file?.size,
         },
       });
-      
+
       // If OpenAI returns 400, return 400 status with clear error
       if (openaiErr.status === 400 || openaiErr.code === 400 || (openaiErr.message && openaiErr.message.includes("400"))) {
         console.error("[STT] OpenAI rejected file with 400 error - unsupported format");
-        return res.status(400).json({ 
-          error: "stt_failed", 
+        return res.status(400).json({
+          error: "stt_failed",
           details: openaiErr.message || "OpenAI transcription failed - unsupported file format",
           mimetype: mimetype,
           fileType: mimeSent
         });
       }
-      
+
       // Otherwise return 500
-      return res.status(500).json({ 
-        error: "stt_failed", 
+      return res.status(500).json({
+        error: "stt_failed",
         details: openaiErr.message || "OpenAI transcription failed"
       });
     }
 
-    // Only increment daily attempt count on successful transcription (200 + transcript exists)
-    // Failed requests (errors above) do NOT consume attempts
-    // CRITICAL: This is the ONLY place where STT attempts are incremented
-    // CRITICAL: Increment happens AFTER successful completion, not before limit check
+    // Track STT usage (unlimited)
+    // CRITICAL: We pass "stt" as the type so it doesn't consume "practice" quota
     let usage = null;
     if (!isPro && transcript && transcript.text && transcript.text.trim()) {
-      // Record attempt with idempotency
-      usage = recordAttempt(userKey, attemptId);
-      
+      // Record attempt with idempotency (type="stt")
+      usage = recordAttempt(userKey, attemptId, "stt");
+
       if (usage.wasNew) {
-        console.log(`[STT] INCREMENTED - userKey: ${userKey}, attemptId: ${attemptId}, used: ${usage.used}/${usage.limit}, route: /api/stt (success only)`);
+        console.log(`[STT] RECORDED - userKey: ${userKey}, attemptId: ${attemptId}, used: ${usage.used}, route: /api/stt`);
       } else {
-        console.log(`[STT] IDEMPOTENT - userKey: ${userKey}, attemptId: ${attemptId}, used: ${usage.used}/${usage.limit}, route: /api/stt (already recorded)`);
+        console.log(`[STT] IDEMPOTENT - userKey: ${userKey}, attemptId: ${attemptId}, used: ${usage.used}, route: /api/stt (already recorded)`);
       }
     } else if (!isPro) {
-      usage = getUsage(userKey);
-      console.log(`[STT] NOT INCREMENTED - userKey: ${userKey}, reason: transcription failed or empty, route: /api/stt (no attempt consumed)`);
+      usage = getUsage(userKey, "stt");
+      console.log(`[STT] NOT RECORDED - userKey: ${userKey}, reason: transcription failed or empty, route: /api/stt`);
     }
 
     console.log(`[STT] ========================================`);
     console.log(`[STT] Request completed successfully`);
-    
+
     // Track STT success
     trackSTT("success", userKey);
-    
+
     // Build response with usage info
     const response = {
       transcript: transcript.text || "",
     };
-    
-    // Include usage for free users
+
+    // Include sttUsage for free users (renamed to avoid confusion with practice limits)
     if (!isPro && usage) {
-      response.usage = {
+      response.sttUsage = {
         used: usage.used,
-        limit: usage.limit,
-        remaining: usage.remaining,
-        blocked: usage.blocked,
+        limit: usage.limit, // -1 (unlimited)
       };
     }
-    
+
     console.log("[STT] POST /api/stt ends with status 200");
     return res.json(response);
   } catch (err) {
@@ -769,11 +743,11 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
     console.error("Error code:", err.code);
     console.error("Error status:", err.status);
     console.error("==============================");
-    
+
     // Track STT failure
     const userKey = req.userKey || null;
     trackSTT("fail", userKey, err.name || "unknown_error");
-    
+
     // Capture to Sentry
     captureException(err, {
       userKey,
@@ -785,33 +759,33 @@ router.post("/stt", uploadAudio, handleMulterError, validateUserKey, rateLimiter
         mimetype: req.file?.mimetype,
       },
     });
-    
+
     // If OpenAI throws 400, return that 400 with proper error format
     if (err.status === 400 || err.code === 400 || (err.message && err.message.includes("400"))) {
       console.log("[STT] POST /api/stt ends with status 400");
-      return res.status(400).json({ 
-        error: "stt_failed", 
+      return res.status(400).json({
+        error: "stt_failed",
         details: err.message || "Unknown error occurred"
       });
     }
-    
+
     // Return JSON error with details for other errors
     console.log("[STT] POST /api/stt ends with status 500");
-    return res.status(500).json({ 
-      error: "stt_failed", 
+    return res.status(500).json({
+      error: "stt_failed",
       details: err.message || "Unknown error occurred"
     });
   } finally {
     // Cleanup: delete original tmp file and output wav file
     console.log(`[STT] Cleaning up temporary files`);
-    
+
     if (originalFilePath && fs.existsSync(originalFilePath)) {
       fs.unlink(originalFilePath, (err) => {
         if (err) console.error(`[STT] Error deleting original file: ${err.message}`);
         else console.log(`[STT] Deleted original file: ${originalFilePath}`);
       });
     }
-    
+
     if (outputWavPath && fs.existsSync(outputWavPath)) {
       fs.unlink(outputWavPath, (err) => {
         if (err) console.error(`[STT] Error deleting WAV file: ${err.message}`);
