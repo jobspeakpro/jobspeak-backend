@@ -10,6 +10,7 @@ import { trackRewrite } from "../services/analytics.js";
 import { getRecentQuestionIds, recordQuestionSeen } from "../services/db.js";
 import { getProfile } from "../services/supabase.js";
 import { getNextQuestion } from "../services/questionBank.js";
+import { analyzeContent, extractProblematicQuote } from "../services/contentDetector.js";
 
 import multer from "multer";
 import fs from "fs";
@@ -418,34 +419,100 @@ ${text} `,
           rubricBreakdown: raw.rubricBreakdown || { professionalism: 80, structure: 70, impact: 70 }
         };
 
-        // --- DETERMINISTIC RUBRIC ENFORCEMENT ---
-        // 1. Profanity Check
-        const profanityRegex = /fuck|shit|damn|hell|stupid|idiot|hate|punch/i;
-        if (profanityRegex.test(text)) {
+        // --- FEEDBACK GROUNDING: CONTENT DETECTION ---
+        // CRITICAL: Detect inappropriate content BEFORE AI can praise it
+        const contentAnalysis = analyzeContent(text);
+
+        if (contentAnalysis.hasInappropriateContent) {
+          console.log("[CONTENT DETECTION]", {
+            profanity: contentAnalysis.profanityDetected,
+            sexual: contentAnalysis.sexualContentDetected,
+            threats: contentAnalysis.threatsDetected
+          });
+
+          // FORCE professionalism score < 50
           analysis.rubricBreakdown.professionalism = 40;
-          analysis.score = Math.min(analysis.score, 45); // Cap score
+
+          // CAP overall score at 45
+          analysis.score = Math.min(analysis.score, 45);
           analysis.label = "Okay";
-          // Ensure it's mentioned
-          if (!analysis.improveNext.some(s => s.toLowerCase().includes("profanity") || s.toLowerCase().includes("professional"))) {
-            analysis.improveNext.unshift("Avoid using unprofessional language or profanity.");
+
+          // OVERRIDE whatWorked - neutral only, NO praise for professionalism
+          analysis.whatWorked = [
+            "You attempted to answer the question.",
+            text.length > 50 ? "You provided some detail." : "You responded to the prompt."
+          ];
+
+          // OVERRIDE improveNext - must include content warning
+          const improveItems = [];
+
+          if (contentAnalysis.profanityDetected) {
+            improveItems.push("Remove all profanity and unprofessional language from your response.");
+          }
+          if (contentAnalysis.sexualContentDetected) {
+            improveItems.push("Avoid any sexual or inappropriate content in professional interviews.");
+          }
+          if (contentAnalysis.threatsDetected) {
+            improveItems.push("Never mention violence, threats, or aggressive behavior in interviews.");
+          }
+
+          // Add STAR and metrics guidance
+          improveItems.push("Use the STAR method (Situation, Task, Action, Result) to structure your answer.");
+          improveItems.push("Add specific metrics or results to quantify your impact.");
+
+          analysis.improveNext = improveItems.slice(0, 4);
+
+          // OVERRIDE hiringManagerHeard - MUST quote actual problematic text
+          const problematicQuote = extractProblematicQuote(text, contentAnalysis);
+          analysis.hiringManagerHeard = problematicQuote
+            ? `"${problematicQuote}" - This language is unprofessional and raises red flags.`
+            : "Unprofessional language that would concern any hiring manager.";
+        } else {
+          // No inappropriate content - apply standard rubric checks
+
+          // 1. Impact/Result Check (look for numbers or key result words)
+          const resultRegex = /\d+|result|outcome|increased|reduced|saved|revenue|improved/i;
+          if (!resultRegex.test(text)) {
+            analysis.rubricBreakdown.impact = Math.min(analysis.rubricBreakdown.impact || 100, 55);
+            // Ensure metric prompt exists
+            if (!analysis.improveNext.some(s => s.toLowerCase().includes("metric") || s.toLowerCase().includes("result"))) {
+              analysis.improveNext.push("Add a specific metric or result to quantify your impact.");
+            }
+          }
+
+          // 2. Structure Check (heuristic: length)
+          if (text.split(' ').length < 20) {
+            analysis.rubricBreakdown.structure = Math.min(analysis.rubricBreakdown.structure || 100, 50);
           }
         }
 
-        // 2. Impact/Result Check (look for numbers or key result words)
-        const resultRegex = /\d+|result|outcome|increased|reduced|saved|revenue|improved/i;
-        if (!resultRegex.test(text)) {
-          analysis.rubricBreakdown.impact = Math.min(analysis.rubricBreakdown.impact || 100, 55);
-          // Ensure metric prompt exists
-          if (!analysis.improveNext.some(s => s.toLowerCase().includes("metric") || s.toLowerCase().includes("result"))) {
-            analysis.improveNext.push("Add a specific metric or result to quantify your impact.");
-          }
-        }
+        // --- VOCABULARY SURFACE-FORM VALIDATION ---
+        // CRITICAL: Vocabulary words MUST appear verbatim in rewrite
+        if (analysis.vocabulary && analysis.vocabulary.length > 0) {
+          const improvedLower = improved.toLowerCase();
+          const validatedVocab = [];
 
-        // 3. Structure Check (heuristic: length)
-        if (text.split(' ').length < 20) {
-          analysis.rubricBreakdown.structure = Math.min(analysis.rubricBreakdown.structure || 100, 50);
+          for (const vocabItem of analysis.vocabulary) {
+            if (!vocabItem.word) continue;
+
+            // Check if word appears verbatim in rewrite (case-insensitive)
+            const wordLower = vocabItem.word.toLowerCase();
+            if (improvedLower.includes(wordLower)) {
+              // Ensure partOfSpeech exists
+              if (!vocabItem.partOfSpeech) {
+                vocabItem.partOfSpeech = "unknown";
+              }
+              validatedVocab.push(vocabItem);
+            } else {
+              console.log(`[VOCAB DROPPED] "${vocabItem.word}" not found in rewrite`);
+            }
+          }
+
+          analysis.vocabulary = validatedVocab;
+          console.log(`[VOCAB VALIDATED] ${validatedVocab.length}/${analysis.vocabulary.length} items matched`);
         }
         // ----------------------------------------
+
 
         // Log the required analysis stats
         console.log("[ANALYZE OUT]", {

@@ -56,8 +56,8 @@ async function testMockInterviewGate() {
         console.log("   Response:", data);
         console.log("   Status:", response.status);
 
-        if (response.status !== 403 || !data.upgrade) {
-            throw new Error("Second attempt should return 403 with upgrade=true");
+        if (response.status !== 403 || !data.upgrade || data.reason !== "mock_interview_limit") {
+            throw new Error("Second attempt should return 403 with upgrade=true and reason='mock_interview_limit'");
         }
         console.log("   ✅ Second attempt blocked correctly\n");
 

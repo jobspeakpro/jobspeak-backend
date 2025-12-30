@@ -10,6 +10,34 @@ import { getProfile } from "../services/supabase.js";
 
 const router = express.Router();
 
+/**
+ * MOCK INTERVIEW STRUCTURE
+ * 
+ * SHORT FORMAT:
+ * - 5 questions
+ * - ~10 minutes duration
+ * - Per-question scoring: clarity, structure, relevance, communication
+ * 
+ * LONG FORMAT:
+ * - 10-12 questions
+ * - ~25 minutes duration
+ * - Per-question scoring: clarity, structure, relevance, communication
+ * 
+ * OVERALL SCORING:
+ * - Aggregated from per-question scores
+ * - Range: 0-100
+ * 
+ * HIRING RECOMMENDATION (not badges):
+ * - strong_recommend: score >= 80
+ * - recommend_with_reservations: score >= 60
+ * - not_recommended_yet: score < 60
+ * 
+ * GATING:
+ * - Free users: ONE mock interview EVER (not per day)
+ * - Pro users: Unlimited
+ */
+
+
 // GET /api/mock-interview/status?userKey=...
 router.get("/mock-interview/status", async (req, res) => {
     try {
@@ -69,9 +97,8 @@ router.post("/mock-interview/start", async (req, res) => {
         if (attempt.used === 1) {
             // Free attempt already used - require upgrade
             return res.status(403).json({
-                allowed: false,
                 upgrade: true,
-                message: "Free mock interview already used. Upgrade to Pro for unlimited access."
+                reason: "mock_interview_limit"
             });
         }
 
