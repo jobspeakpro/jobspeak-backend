@@ -148,9 +148,30 @@ router.get("/mock-interview/questions", async (req, res) => {
         }
 
         // Generate personalized questions
-        const result = generateMockInterviewQuestions(userKey, type, profile);
+        const result = generateMockInterviewQuestions({
+            userKey,
+            type,
+            jobTitle: profile.job_title,
+            industry: profile.industry,
+            seniority: profile.seniority,
+            focusAreas: profile.focus_areas,
+            askedQuestionIds: [] // TODO: Track asked questions per user
+        });
 
-        return res.json(result);
+        // Format response to match frontend contract
+        const formattedQuestions = result.questions.map(q => ({
+            id: q.id,
+            category: q.category.toUpperCase(), // Uppercase for frontend
+            difficulty: q.difficulty.toUpperCase(), // Uppercase for frontend
+            text: q.prompt, // Primary field for frontend
+            prompt: q.prompt, // Backward compatibility
+            hint: q.hint
+        }));
+
+        return res.json({
+            interviewer: result.interviewer,
+            questions: formattedQuestions
+        });
 
     } catch (error) {
         console.error("Error generating mock interview questions:", error);
