@@ -7,7 +7,7 @@ import {
     getSubscription
 } from "../services/db.js";
 import { getProfile } from "../services/supabase.js";
-import { generateMockInterviewQuestions } from "../services/mockInterviewQuestions.js";
+import { generateMockInterviewQuestions } from "../services/personalizedQuestionSelector.js";
 
 const router = express.Router();
 

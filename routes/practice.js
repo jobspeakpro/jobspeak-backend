@@ -2,7 +2,7 @@
 // Practice session endpoints including demo questions
 
 import express from "express";
-import { generatePracticeDemoQuestions } from "../services/mockInterviewQuestions.js";
+import { generatePracticeDemoQuestions } from "../services/personalizedQuestionSelector.js";
 
 const router = express.Router();
 
@@ -20,7 +20,7 @@ const router = express.Router();
  */
 router.get("/practice/demo-questions", (req, res) => {
     try {
-        const { jobTitle, industry, seniority, focusAreas } = req.query;
+        const { jobTitle, industry, seniority, focusAreas, userKey } = req.query;
 
         // Parse focus areas if provided
         let parsedFocusAreas = [];
@@ -28,17 +28,20 @@ router.get("/practice/demo-questions", (req, res) => {
             parsedFocusAreas = focusAreas.split(',').map(f => f.trim()).filter(Boolean);
         }
 
-        // Generate questions
-        const questions = generatePracticeDemoQuestions({
+        // Generate personalized questions
+        const result = generatePracticeDemoQuestions({
+            userKey: userKey || `demo-${Date.now()}`,
             jobTitle,
             industry,
             seniority,
-            focusAreas: parsedFocusAreas
+            focusAreas: parsedFocusAreas,
+            askedQuestionIds: [] // No history for demo
         });
 
         return res.json({
-            questions,
-            count: questions.length
+            interviewer: result.interviewer,
+            questions: result.questions,
+            count: result.questions.length
         });
 
     } catch (error) {
