@@ -13,6 +13,7 @@ import billingRoutes from "./routes/billing.js";
 import dashboardRoutes from "./routes/dashboard.js";
 import dailyTipRoutes from "./routes/dailyTip.js";
 import mockInterviewRoutes from "./routes/mockInterview.js";
+import practiceRoutes from "./routes/practice.js";
 import progressRoutes from "./routes/progress.js";
 import reflectionRoutes from "./routes/reflection.js";
 import resumeRoutes from "./routes/resume.js";
@@ -186,6 +187,7 @@ app.use("/api", billingRoutes);  // /api/billing/*
 app.use("/api", dashboardRoutes); // /api/dashboard/*
 app.use("/api", dailyTipRoutes);  // /api/daily-tip
 app.use("/api", mockInterviewRoutes); // /api/mock-interview/*
+app.use("/api", practiceRoutes);  // /api/practice/*
 app.use("/api", progressRoutes);  // /api/progress/summary
 app.use("/api", reflectionRoutes); // /api/daily-reflection
 app.use("/api", sttRoutes);      // /api/stt

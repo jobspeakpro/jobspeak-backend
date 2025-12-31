@@ -7,6 +7,7 @@ import {
     getSubscription
 } from "../services/db.js";
 import { getProfile } from "../services/supabase.js";
+import { generateMockInterviewQuestions } from "../services/mockInterviewQuestions.js";
 
 const router = express.Router();
 
@@ -113,6 +114,47 @@ router.post("/mock-interview/start", async (req, res) => {
     } catch (error) {
         console.error("Error starting mock interview:", error);
         return res.status(500).json({ error: "Failed to start mock interview" });
+    }
+});
+
+// GET /api/mock-interview/questions?userKey=...&type=short|long
+router.get("/mock-interview/questions", async (req, res) => {
+    try {
+        const { userKey, type } = req.query;
+
+        if (!userKey) {
+            return res.status(400).json({ error: "userKey required" });
+        }
+
+        if (!type || !['short', 'long'].includes(type)) {
+            return res.status(400).json({ error: "type must be 'short' or 'long'" });
+        }
+
+        // Fetch user profile for personalization
+        let profile = {};
+        try {
+            const userProfile = await getProfile(userKey);
+            if (userProfile) {
+                profile = {
+                    job_title: userProfile.job_title,
+                    industry: userProfile.industry,
+                    seniority: userProfile.seniority,
+                    focus_areas: userProfile.focus_areas || []
+                };
+            }
+        } catch (profileError) {
+            console.warn("Failed to fetch profile, using defaults:", profileError.message);
+            // Continue with empty profile - graceful fallback
+        }
+
+        // Generate personalized questions
+        const result = generateMockInterviewQuestions(userKey, type, profile);
+
+        return res.json(result);
+
+    } catch (error) {
+        console.error("Error generating mock interview questions:", error);
+        return res.status(500).json({ error: "Failed to generate questions" });
     }
 });
 
