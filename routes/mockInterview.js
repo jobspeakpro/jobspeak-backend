@@ -42,10 +42,12 @@ const router = express.Router();
 // GET /api/mock-interview/status?userKey=...
 router.get("/mock-interview/status", async (req, res) => {
     try {
-        const { userKey } = req.query;
+        let { userKey } = req.query;
 
+        // Guest-friendly: generate guest key if missing
         if (!userKey) {
-            return res.status(400).json({ error: "userKey required" });
+            userKey = `guest-${Date.now()}`;
+            console.log(`[MOCK STATUS] Generated guest key: ${userKey}`);
         }
 
         // Check if user is Pro
@@ -73,10 +75,12 @@ router.get("/mock-interview/status", async (req, res) => {
 // POST /api/mock-interview/start
 router.post("/mock-interview/start", async (req, res) => {
     try {
-        const { userKey, interviewType } = req.body;
+        let { userKey, interviewType } = req.body;
 
+        // Guest-friendly: generate guest key if missing
         if (!userKey) {
-            return res.status(400).json({ error: "userKey required" });
+            userKey = `guest-${Date.now()}`;
+            console.log(`[MOCK START] Generated guest key: ${userKey}`);
         }
 
         if (!interviewType || !['short', 'long'].includes(interviewType)) {
@@ -120,17 +124,20 @@ router.post("/mock-interview/start", async (req, res) => {
 // GET /api/mock-interview/questions?userKey=...&type=short|long
 router.get("/mock-interview/questions", async (req, res) => {
     try {
-        const { userKey, type } = req.query;
+        let { userKey, type } = req.query;
 
+        // Guest-friendly: generate guest key if missing
         if (!userKey) {
-            return res.status(400).json({ error: "userKey required" });
+            userKey = `guest-${Date.now()}`;
+            console.log(`[MOCK QUESTIONS] Generated guest key: ${userKey}`);
         }
 
+        // Only 400 for invalid type
         if (!type || !['short', 'long'].includes(type)) {
             return res.status(400).json({ error: "type must be 'short' or 'long'" });
         }
 
-        // Fetch user profile for personalization
+        // Fetch user profile for personalization (graceful fallback if Supabase unavailable)
         let profile = {};
         try {
             const userProfile = await getProfile(userKey);
@@ -141,9 +148,12 @@ router.get("/mock-interview/questions", async (req, res) => {
                     seniority: userProfile.seniority,
                     focus_areas: userProfile.focus_areas || []
                 };
+                console.log(`[MOCK QUESTIONS] Using profile for ${userKey}`);
+            } else {
+                console.log(`[MOCK QUESTIONS] No profile found, using defaults`);
             }
         } catch (profileError) {
-            console.warn("Failed to fetch profile, using defaults:", profileError.message);
+            console.warn(`[MOCK QUESTIONS] Profile lookup failed (using defaults):`, profileError.message);
             // Continue with empty profile - graceful fallback
         }
 
