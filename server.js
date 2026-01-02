@@ -209,6 +209,30 @@ app.get("/__sentry-test", () => {
   throw new Error("SENTRY_BACKEND_CONFIRMED");
 });
 
+// CRITICAL: Hard-coded TTS health endpoint (app-level to avoid routing issues)
+app.get("/api/tts/health", (req, res) => {
+  const hasCreds = !!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+
+  // Try to extract project_id if creds exist
+  let projectId = "unknown";
+  if (hasCreds) {
+    try {
+      const parsed = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+      projectId = parsed.project_id || "unknown";
+    } catch (e) {
+      projectId = "parse-error";
+    }
+  }
+
+  return res.status(hasCreds ? 200 : 500).json({
+    ok: hasCreds,
+    ttsReady: hasCreds,
+    authMode: hasCreds ? "service_account_json" : "none",
+    projectId: projectId,
+    error: hasCreds ? null : "missing_creds",
+  });
+});
+
 // ------------ ROUTES ------------
 // API routes (mounted under /api prefix for frontend proxy compatibility)
 // POST /api/stt - Speech-to-text endpoint
