@@ -11,55 +11,93 @@ const router = express.Router();
 // Write service account JSON to temp file if provided in env var
 const CREDENTIALS_PATH = "/tmp/google_credentials.json";
 
-function setupGoogleCredentials() {
-  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    console.log(`[TTS] Auth mode: Existing env var found (${process.env.GOOGLE_APPLICATION_CREDENTIALS})`);
-    return true;
+/**
+ * Robust credential loader that handles Railway's various paste formats
+ * @returns {{ ok: boolean, creds?: object, error?: string }}
+ */
+function loadServiceAccountFromEnv() {
+  const raw = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+  if (!raw) {
+    return { ok: false, error: "missing_creds" };
   }
 
-  if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
-    try {
-      console.log("[TTS] Auth mode: GOOGLE_APPLICATION_CREDENTIALS_JSON found. Writing to file...");
-      const jsonContent = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON.trim();
+  try {
+    // Handle common Railway paste formats:
+    // 1) raw JSON
+    // 2) JSON stringified (starts/ends with quotes)
+    // 3) contains literal \n sequences
+    let s = raw.trim();
 
-      // Basic validation
-      if (!jsonContent.startsWith('{')) {
-        console.error("[TTS] Auth Error: GOOGLE_APPLICATION_CREDENTIALS_JSON is not valid JSON");
-        return false;
+    // If the whole thing is quoted, unquote by JSON parsing once
+    if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+      try {
+        s = JSON.parse(s);
+      } catch (e) {
+        // If parse fails, just strip quotes manually
+        s = s.slice(1, -1);
       }
-
-      fs.writeFileSync(CREDENTIALS_PATH, jsonContent);
-      process.env.GOOGLE_APPLICATION_CREDENTIALS = CREDENTIALS_PATH;
-      console.log(`[TTS] Auth success: Credentials written to ${CREDENTIALS_PATH}`);
-      return true;
-    } catch (err) {
-      console.error("[TTS] Auth Error: Failed to write credentials file:", err.message);
-      return false;
     }
-  }
 
-  console.warn("[TTS] Auth Warning: No Google credentials found. TTS may fail if not in ADC environment.");
-  return false;
+    // Convert escaped newlines into real newlines if needed
+    s = s.replace(/\\n/g, "\n");
+
+    const creds = JSON.parse(s);
+
+    // Validate required fields
+    if (!creds.client_email || !creds.private_key || !creds.project_id) {
+      return { ok: false, error: "bad_creds_shape" };
+    }
+
+    return { ok: true, creds };
+  } catch (e) {
+    console.error("[TTS] Credential parse error:", e.message);
+    return { ok: false, error: "creds_parse_failed" };
+  }
 }
 
-const authReady = setupGoogleCredentials();
+const credResult = loadServiceAccountFromEnv();
+const authReady = credResult.ok;
 
 // Initialize Client (ADC will pick up the env var we just set)
 let client;
-try {
-  client = new textToSpeech.TextToSpeechClient();
-  console.log("[TTS] TTS client initialized OK");
-} catch (err) {
-  console.error("[TTS] Failed to initialize Google TTS Client:", err.message);
+if (authReady) {
+  try {
+    // Write credentials to file
+    fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(credResult.creds));
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = CREDENTIALS_PATH;
+    console.log(`[TTS] Auth success: Credentials written to ${CREDENTIALS_PATH}`);
+    console.log(`[TTS] Project ID: ${credResult.creds.project_id}`);
+
+    client = new textToSpeech.TextToSpeechClient();
+    console.log("[TTS] TTS client initialized OK");
+  } catch (err) {
+    console.error("[TTS] Failed to initialize Google TTS Client:", err.message);
+  }
+} else {
+  console.error(`[TTS] Auth Error: ${credResult.error}`);
 }
 
 // --- HEALTH CHECK ---
 router.get("/health", (req, res) => {
+  const r = loadServiceAccountFromEnv();
+
+  if (!r.ok) {
+    return res.status(500).json({
+      ok: false,
+      ttsReady: false,
+      authMode: "service_account_json",
+      projectId: null,
+      error: r.error
+    });
+  }
+
   return res.json({
     ok: true,
-    ttsReady: !!client && authReady,
-    authMode: process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON ? "service_account_json" : "default/env",
-    credentialsPath: process.env.GOOGLE_APPLICATION_CREDENTIALS || "none"
+    ttsReady: true,
+    authMode: "service_account_json",
+    projectId: r.creds.project_id,
+    hasCreds: true,
+    error: null
   });
 });
 

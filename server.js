@@ -211,26 +211,65 @@ app.get("/__sentry-test", () => {
 
 // CRITICAL: Hard-coded TTS health endpoint (app-level to avoid routing issues)
 app.get("/api/tts/health", (req, res) => {
-  const hasCreds = !!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+  const raw = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
 
-  // Try to extract project_id if creds exist
-  let projectId = "unknown";
-  if (hasCreds) {
-    try {
-      const parsed = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
-      projectId = parsed.project_id || "unknown";
-    } catch (e) {
-      projectId = "parse-error";
-    }
+  if (!raw) {
+    return res.status(500).json({
+      ok: false,
+      ttsReady: false,
+      authMode: "service_account_json",
+      projectId: null,
+      error: "missing_creds"
+    });
   }
 
-  return res.status(hasCreds ? 200 : 500).json({
-    ok: hasCreds,
-    ttsReady: hasCreds,
-    authMode: hasCreds ? "service_account_json" : "none",
-    projectId: projectId,
-    error: hasCreds ? null : "missing_creds",
-  });
+  try {
+    // Handle common Railway paste formats
+    let s = raw.trim();
+
+    // If the whole thing is quoted, unquote by JSON parsing once
+    if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+      try {
+        s = JSON.parse(s);
+      } catch (e) {
+        s = s.slice(1, -1);
+      }
+    }
+
+    // Convert escaped newlines into real newlines
+    s = s.replace(/\\n/g, "\n");
+
+    const creds = JSON.parse(s);
+
+    // Validate required fields
+    if (!creds.client_email || !creds.private_key || !creds.project_id) {
+      return res.status(500).json({
+        ok: false,
+        ttsReady: false,
+        authMode: "service_account_json",
+        projectId: null,
+        error: "bad_creds_shape"
+      });
+    }
+
+    return res.json({
+      ok: true,
+      ttsReady: true,
+      authMode: "service_account_json",
+      projectId: creds.project_id,
+      hasCreds: true,
+      error: null
+    });
+  } catch (e) {
+    return res.status(500).json({
+      ok: false,
+      ttsReady: false,
+      authMode: "service_account_json",
+      projectId: null,
+      error: "creds_parse_failed",
+      detail: e.message
+    });
+  }
 });
 
 // ------------ ROUTES ------------
