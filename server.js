@@ -29,16 +29,23 @@ import voiceRoutes from "./voiceRoute.js";
 import { requestLogger } from "./middleware/logger.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
-// Initialize Sentry
-Sentry.init({
-  dsn: process.env.SENTRY_DSN,
-  environment: process.env.NODE_ENV || "development",
-});
-
-// Sentry init removed to fix crash
-// initSentry().catch(err => {
-//   console.error("Failed to initialize Sentry:", err.message);
-// });
+// Initialize Sentry (safe - only if DSN is provided)
+let sentryInitialized = false;
+try {
+  if (process.env.SENTRY_DSN) {
+    Sentry.init({
+      dsn: process.env.SENTRY_DSN,
+      environment: process.env.NODE_ENV || "development",
+    });
+    sentryInitialized = true;
+    console.log("[SENTRY] Initialized successfully");
+  } else {
+    console.log("[SENTRY] SENTRY_DSN not set, skipping initialization");
+  }
+} catch (err) {
+  console.error("[SENTRY] Failed to initialize (non-fatal):", err.message);
+  sentryInitialized = false;
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -54,8 +61,10 @@ if (!fs.existsSync(tmpDir)) {
 }
 
 // ------------ MIDDLEWARE ------------
-// Sentry request handler (must be first)
-app.use(Sentry.Handlers.requestHandler());
+// Sentry request handler (must be first, only if Sentry is initialized)
+if (sentryInitialized) {
+  app.use(Sentry.Handlers.requestHandler());
+}
 
 // Webhook endpoint needs raw body for signature verification - must be before express.json()
 app.use("/api/billing/webhook", express.raw({ type: "application/json" }));
@@ -219,16 +228,21 @@ app.use((req, res) => {
   res.status(404).json({ error: "Not found" });
 });
 
-// Sentry error handler (must be before other error handlers)
-app.use(Sentry.Handlers.errorHandler());
+// Sentry error handler (must be before other error handlers, only if Sentry is initialized)
+if (sentryInitialized) {
+  app.use(Sentry.Handlers.errorHandler());
+}
 
 // Centralized error handler (must be last)
 app.use(errorHandler);
 
 // Railway requires explicit binding to 0.0.0.0 to accept external connections
+// PORT must come from process.env.PORT (Railway sets this automatically)
+console.log(`[STARTUP] Starting server on port ${PORT} (from ${process.env.PORT ? 'process.env.PORT' : 'default 3000'})`);
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Backend listening on http://127.0.0.1:${PORT}`);
-  console.log("[BACKEND] listening", { port: PORT, baseUrl: `http://127.0.0.1:${PORT}` });
+  console.log(`✅ Backend listening on 0.0.0.0:${PORT}`);
+  console.log(`✅ Health check available at: http://0.0.0.0:${PORT}/health`);
+  console.log(`[BACKEND] Server ready`, { port: PORT, env: process.env.NODE_ENV || "development" });
 }).on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     const isWindows = process.platform === 'win32';
