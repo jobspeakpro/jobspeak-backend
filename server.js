@@ -236,9 +236,7 @@ app.get("/api/tts/health", (req, res) => {
       }
     }
 
-    // Convert escaped newlines into real newlines
-    s = s.replace(/\\n/g, "\n");
-
+    // DO NOT replace \\n before JSON.parse - it corrupts the JSON
     const creds = JSON.parse(s);
 
     // Validate required fields
