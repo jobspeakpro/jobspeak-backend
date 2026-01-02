@@ -7,10 +7,61 @@ import { rateLimiter } from "../middleware/rateLimiter.js";
 
 const router = express.Router();
 
-// ADC is used automatically (from `gcloud auth application-default login`)
-const client = new textToSpeech.TextToSpeechClient();
+// --- GOOGLE CLOUD CREDENTIALS HANDLING (RAILWAY FIX) ---
+// Write service account JSON to temp file if provided in env var
+const CREDENTIALS_PATH = "/tmp/google_credentials.json";
 
-console.log("[TTS] /api/tts route loaded (Google ADC)");
+function setupGoogleCredentials() {
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    console.log(`[TTS] Auth mode: Existing env var found (${process.env.GOOGLE_APPLICATION_CREDENTIALS})`);
+    return true;
+  }
+
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+    try {
+      console.log("[TTS] Auth mode: GOOGLE_APPLICATION_CREDENTIALS_JSON found. Writing to file...");
+      const jsonContent = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON.trim();
+
+      // Basic validation
+      if (!jsonContent.startsWith('{')) {
+        console.error("[TTS] Auth Error: GOOGLE_APPLICATION_CREDENTIALS_JSON is not valid JSON");
+        return false;
+      }
+
+      fs.writeFileSync(CREDENTIALS_PATH, jsonContent);
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = CREDENTIALS_PATH;
+      console.log(`[TTS] Auth success: Credentials written to ${CREDENTIALS_PATH}`);
+      return true;
+    } catch (err) {
+      console.error("[TTS] Auth Error: Failed to write credentials file:", err.message);
+      return false;
+    }
+  }
+
+  console.warn("[TTS] Auth Warning: No Google credentials found. TTS may fail if not in ADC environment.");
+  return false;
+}
+
+const authReady = setupGoogleCredentials();
+
+// Initialize Client (ADC will pick up the env var we just set)
+let client;
+try {
+  client = new textToSpeech.TextToSpeechClient();
+  console.log("[TTS] TTS client initialized OK");
+} catch (err) {
+  console.error("[TTS] Failed to initialize Google TTS Client:", err.message);
+}
+
+// --- HEALTH CHECK ---
+router.get("/health", (req, res) => {
+  return res.json({
+    ok: true,
+    ttsReady: !!client && authReady,
+    authMode: process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON ? "service_account_json" : "default/env",
+    credentialsPath: process.env.GOOGLE_APPLICATION_CREDENTIALS || "none"
+  });
+});
 
 // Create cache directory
 const cacheDir = path.join(process.cwd(), "data", "tts-cache");
