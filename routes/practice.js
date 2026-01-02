@@ -265,7 +265,14 @@ router.post(["/practice/answer", "/answer"], async (req, res) => {
 
             if (ttsText && ttsText.trim().length > 0) {
                 // Safeguard: ensure we don't send empty text
-                const audioBuffer = await generateTTS(ttsText);
+                console.log(`[PRACTICE ANSWER] Starting TTS generation for text length: ${ttsText.length}`);
+
+                // Add 3s timeout to TTS generation
+                const ttsPromise = generateTTS(ttsText);
+                const ttsTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('TTS timeout')), 3000));
+
+                const audioBuffer = await Promise.race([ttsPromise, ttsTimeout]);
+
                 // In production, upload to storage and return URL
                 // For now, we'll return null as TTS requires storage setup
                 clearerRewriteAudioUrl = null; // TODO: Upload to storage
@@ -274,7 +281,7 @@ router.post(["/practice/answer", "/answer"], async (req, res) => {
                 console.log(`[PRACTICE ANSWER] Skipping TTS - text is empty/blank`);
             }
         } catch (error) {
-            console.error('[PRACTICE ANSWER] TTS generation failed:', error.message);
+            console.error('[PRACTICE ANSWER] TTS generation failed/timed out:', error.message);
             // Gracefully degrade - audio is optional
         }
 
