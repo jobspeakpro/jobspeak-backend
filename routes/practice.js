@@ -92,7 +92,7 @@ router.post(["/practice/answer", "/answer"], async (req, res) => {
     // Fast-response path for smoke tests
     if (req.query.smoke === '1' || req.query.smoke === 1) {
         console.log(`[PRACTICE ANSWER] Fast-response mode (smoke=1)`);
-        
+
         // Try to save to Supabase with hard timeout (fire and forget)
         const { userKey, sessionId, questionId, questionText, answerText, audioUrl } = req.body;
         if (sessionId && questionId && questionText) {
@@ -188,7 +188,7 @@ router.post(["/practice/answer", "/answer"], async (req, res) => {
             .select()
             .single();
 
-        const timeoutPromise = new Promise((_, reject) => 
+        const timeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Supabase insert timeout')), 3000)
         );
 
@@ -260,13 +260,19 @@ router.post(["/practice/answer", "/answer"], async (req, res) => {
         // Generate TTS audio for clearer rewrite
         let clearerRewriteAudioUrl = null;
         try {
-            if (clearerRewriteObj.text) {
-                const audioBuffer = await generateTTS(clearerRewriteObj.text);
+            const ttsText = clearerRewriteObj.text;
+            console.log(`[PRACTICE ANSWER] TTS Text candidate: "${ttsText ? (ttsText.substring(0, 20) + '...') : 'undefined'}" (Length: ${ttsText ? ttsText.length : 0})`);
+
+            if (ttsText && ttsText.trim().length > 0) {
+                // Safeguard: ensure we don't send empty text
+                const audioBuffer = await generateTTS(ttsText);
                 // In production, upload to storage and return URL
                 // For now, we'll return null as TTS requires storage setup
                 clearerRewriteAudioUrl = null; // TODO: Upload to storage
+                console.log(`[PRACTICE ANSWER] ${Date.now() - startTime}ms - TTS generation complete`);
+            } else {
+                console.log(`[PRACTICE ANSWER] Skipping TTS - text is empty/blank`);
             }
-            console.log(`[PRACTICE ANSWER] ${Date.now() - startTime}ms - TTS generation complete`);
         } catch (error) {
             console.error('[PRACTICE ANSWER] TTS generation failed:', error.message);
             // Gracefully degrade - audio is optional
