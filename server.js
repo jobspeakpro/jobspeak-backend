@@ -141,13 +141,18 @@ const corsOptions = {
       }
     }
 
+    // Debug logging for troubleshooting
+    console.log(`[CORS] Checking origin: ${origin}`);
+
     // Allow production origins
     if (allowedOrigins.includes(origin)) {
+      console.log(`[CORS] Allowed production origin: ${origin}`);
       return callback(null, true);
     }
 
     // Allow Vercel preview assignments (e.g. https://jobspeak-frontend-git-foo.vercel.app)
-    if (origin.endsWith('.vercel.app')) {
+    if (origin && origin.endsWith('.vercel.app')) {
+      console.log(`[CORS] Allowed Vercel preview: ${origin}`);
       return callback(null, true);
     }
 
@@ -159,6 +164,8 @@ const corsOptions = {
     // Development: log blocked origins
     if (isDevelopment) {
       console.warn(`[CORS] Blocked origin: ${origin}${frontendOrigin ? ` (Expected: ${frontendOrigin})` : " (No FRONTEND_ORIGIN set)"}`);
+    } else {
+      console.warn(`[CORS] Blocked origin in PRODUCTION: ${origin}`);
     }
 
     // Block all other origins
@@ -220,8 +227,8 @@ app.use("/api", practiceRoutes);  // /api/practice/*
 app.use("/api", progressRoutes);  // /api/progress/summary
 app.use("/api", reflectionRoutes); // /api/daily-reflection
 app.use("/api", sttRoutes);      // /api/stt
+app.use("/api", ttsRoutes);      // /api/tts, /api/tts/health
 app.use("/api", sessionsRoutes);  // /api/sessions
-app.use("/api", ttsRoutes);      // /api/tts
 app.use("/api", usageRoutes);    // /api/usage/*
 
 // Non-API routes
