@@ -146,6 +146,11 @@ const corsOptions = {
       return callback(null, true);
     }
 
+    // Allow Vercel preview assignments (e.g. https://jobspeak-frontend-git-foo.vercel.app)
+    if (origin.endsWith('.vercel.app')) {
+      return callback(null, true);
+    }
+
     // Allow exact match of FRONTEND_ORIGIN if set (for backwards compatibility)
     if (frontendOrigin && origin === frontendOrigin) {
       return callback(null, true);
