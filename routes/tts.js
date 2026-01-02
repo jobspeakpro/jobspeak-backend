@@ -176,14 +176,22 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || req.connection?.r
     const cacheKey = getCacheKey(text, voice.languageCode, voice.name, speakingRate);
 
     // Check cache
+    // Check cache
     const cachedAudio = getCachedAudio(cacheKey);
     if (cachedAudio) {
       console.log(`[TTS] Cache hit: ${cacheKey.substring(0, 8)}...`);
-      res.setHeader("Content-Type", "audio/mpeg");
       res.setHeader("X-Cache-Hit", "true");
-      res.setHeader("Cache-Control", "public, max-age=86400"); // Cache for 24h
-      console.log(`[TTS] Returning status=200 content-type=${res.getHeader('Content-Type')} (cache hit)`);
-      return res.status(200).send(cachedAudio);
+
+      // Return Data URI in JSON
+      const base64Audio = cachedAudio.toString('base64');
+      const audioUrl = `data:audio/mpeg;base64,${base64Audio}`;
+
+      return res.status(200).json({
+        ok: true,
+        audioUrl,
+        // Optional: raw metadata if needed
+        cached: true
+      });
     }
 
     // Cache miss - call Google TTS API
@@ -205,16 +213,24 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || req.connection?.r
       const [apiResponse] = await Promise.race([ttsPromise, timeoutPromise]);
       response = apiResponse;
     } catch (err) {
-      if (err.message === 'TTS_PROVIDER_TIMEOUT') {
-        console.error("[TTS] Google API Timed out (3s)");
-        return res.status(502).json({ error: "tts_timeout", detail: "Provider took too long" });
-      }
-      throw err; // Re-throw for outer catch
+      console.error("[TTS] Google API Error/Timeout:", err.message);
+      // Return JSON 200 with error
+      return res.status(200).json({
+        ok: false,
+        reason: "provider_failed",
+        error: "tts_timeout",
+        detail: "Provider took too long or failed"
+      });
     }
 
     if (!response || !response.audioContent) {
       console.error("[TTS] Missing audioContent in provider response");
-      return res.status(502).json({ error: "tts_failed", detail: "No audio content returned" });
+      return res.status(200).json({
+        ok: false,
+        reason: "provider_failed",
+        error: "tts_failed",
+        detail: "No audio content returned"
+      });
     }
 
     const audioBuffer = Buffer.isBuffer(response.audioContent)
@@ -224,10 +240,16 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || req.connection?.r
     // Save to cache
     saveCachedAudio(cacheKey, audioBuffer);
 
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("X-Cache-Hit", "false");
-    res.setHeader("Cache-Control", "public, max-age=86400"); // Cache for 24h
-    console.log(`[TTS] Returning status=200 content-type=${res.getHeader('Content-Type')} (cache miss)`);
+    // Return Data URI in JSON
+    const base64Audio = audioBuffer.toString('base64');
+    const audioUrl = `data:audio/mpeg;base64,${base64Audio}`;
+
+    console.log(`[TTS] Returning status=200 JSON with audioUrl (cache miss)`);
+    return res.status(200).json({
+      ok: true,
+      audioUrl,
+      cached: false
+    });
     return res.status(200).send(audioBuffer);
   } catch (err) {
     console.error("[TTS] synthesizeSpeech failed:", err?.message || err);
