@@ -301,7 +301,8 @@ router.post(["/practice/answer", "/answer"], async (req, res) => {
             why: hireLikelihoodData.why,
             feedback: evaluation.bullets, // Keep for backward compatibility
             progress,
-            saved: !attemptError // Flag to indicate if persistence succeeded
+            saved: !attemptError, // Flag to indicate if persistence succeeded
+            professionalism: clearerRewriteObj.professionalism // New Gate Metadata
         }));
 
     } catch (error) {

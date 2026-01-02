@@ -174,7 +174,48 @@ function calculateHireLikelihoodAfterRewrite(beforeLikelihood, rewriteQuality) {
 /**
  * Generate highly contextual, spoken-style rewrite (Target: 90%+ Hire Likelihood)
  */
+// --- PROFESSIONALISM SAFEGUARDS ---
+
+const BANNED_PATTERNS = {
+    // Catch roots for strong profanity (fuck->fucking, shit->shitty) but be careful with others
+    profanity: /\b(fuck[a-z]*|shit[a-z]*|bitch[a-z]*|cunt[a-z]*|damn|hell|ass|bastard|piss|dick|cock|pussy|slut|whore)\b/i,
+    sexual: /\b(sex|sexual|sexy|nude|naked|erotic|arouse|orgasm|penetrate|intercourse|blowjob|handjob)\b/i,
+    slurs: /\b(nigger|faggot|retard|spic|chink|kike|dyke|tranny)\b/i,
+    informal: /\b(girl|baby|tonight|babe|honey|sweetie|yo|bro|dude|nah|gonna|wanna|gotta)\b/i,
+    harassment: /\b(hate|kill|murder|die|stupid|idiot|dumb|ugly|fat)\b/i
+};
+
+/**
+ * Sanitize text for professionalism
+ * @param {string} text 
+ * @returns {Object} { flagged: boolean, reasons: string[], cleanedText: string }
+ */
+export function sanitizeForProfessionalism(text) {
+    let flagged = false;
+    let reasons = [];
+    let cleanedText = text;
+
+    for (const [category, regex] of Object.entries(BANNED_PATTERNS)) {
+        if (regex.test(text)) {
+            flagged = true;
+            reasons.push(category);
+            // Redact offending words
+            cleanedText = cleanedText.replace(new RegExp(regex, 'gi'), '[REDACTED]');
+        }
+    }
+
+    return { flagged, reasons, cleanedText };
+}
+
+
+/**
+ * Generate highly contextual, spoken-style rewrite (Target: 90%+ Hire Likelihood)
+ */
 export function generateSTARRewrite(questionText, answerText, score, feedback, forcedVocab = null) {
+    // 1. PROFESSIONALISM GATE
+    const safetyCheck = sanitizeForProfessionalism(answerText);
+    const isSafe = !safetyCheck.flagged;
+
     let v1, v2;
     // Use forced vocab if provided (ENSURES UI MATCH)
     if (forcedVocab && forcedVocab.length >= 2) {
@@ -244,13 +285,32 @@ export function generateSTARRewrite(questionText, answerText, score, feedback, f
     else if (q.match(/weakness|improve|negative feedback/)) contextType = 'weakness';
     else if (q.match(/lead|manage|team|mentor|style/)) contextType = 'leadership';
 
-    const cleanAnswer = answerText.replace(/\b(fuck|shit|damn|hell)\b/gi, '').trim();
-    const sentences = cleanAnswer.split(/[.!?]+/).filter(s => s.trim().length > 10);
-    const userContext = sentences[0] ? sentences[0].trim() : "I was working on a critical project";
+    // SAFE CONTEXT EXTRACTION
+    let userContext = "I was working on a critical project"; // Default safe context
+
+    if (isSafe && answerText.length > 10) {
+        // Only extract user context if the text is safe
+        const cleanAnswer = answerText.trim();
+        const sentences = cleanAnswer.split(/[.!?]+/).filter(s => s.trim().length > 10);
+        if (sentences[0]) {
+            // Take first sentence but cap length to avoid rambling
+            userContext = sentences[0].substring(0, 80).trim();
+            if (!userContext.endsWith('.')) userContext += '...';
+        }
+    } else if (!isSafe) {
+        // If flagged, use generic safe context based on type
+        if (contextType === 'conflict') userContext = "there was a disagreement on the team strategy";
+        else if (contextType === 'failure') userContext = "I encountered an unexpected issue with the deliverables";
+        else if (contextType === 'leadership') userContext = "the team needed clear direction to move forward";
+        else if (contextType === 'weakness') userContext = "I realized I needed to improve my workflow efficiency";
+        else userContext = "I encountered a complex challenge that required immediate attention";
+    }
 
     let rewrite = "";
 
     // --- CONTEXT-AWARE ASSEMBLY (HIGH TENSION -> RESOLUTION) ---
+
+    // Note: We use the 'userContext' which is now guaranteed safe (either extracting from safe text or using safe template)
 
     if (contextType === 'conflict') {
         rewrite = `In a past situation, I disagreed with a colleague on the best approach. ${userContext}, but we hit a wall. I knew we needed alignment, so I asked questions to understand their perspective. I ${buildActionPhrase(v1)} to bridge the gap. We found a compromise that worked for everyone. This choice ${buildResultPhrase(v2)} and kept the relationship professional.`;
@@ -268,6 +328,7 @@ export function generateSTARRewrite(questionText, answerText, score, feedback, f
         // Default / Challenge
         rewrite = `In a previous role, ${userContext}. I assessed the situation and noticed a clear friction point. I knew I needed to act, so I ${buildActionPhrase(v1)} to hit the ground running. I broke the problem down and ${buildResultPhrase(v2)}. By staying focused on the goal, I drove a strong, measurable result.`;
     }
+
     let hireProbability = 92;
     if (feedback.metrics >= 15) hireProbability += 3;
     if (feedback.structure >= 20) hireProbability += 3;
@@ -275,7 +336,12 @@ export function generateSTARRewrite(questionText, answerText, score, feedback, f
     return {
         text: rewrite,
         hireProbabilityEstimate: Math.min(99, hireProbability),
-        usedVocabulary: [v1, v2] // Return exact words used for UI sync
+        usedVocabulary: [v1, v2], // Return exact words used for UI sync
+        professionalism: {
+            flagged: safetyCheck.flagged,
+            reasons: safetyCheck.reasons,
+            replaced: safetyCheck.flagged // True if we replaced context due to flags
+        }
     };
 }
 
