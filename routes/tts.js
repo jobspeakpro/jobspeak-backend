@@ -226,7 +226,18 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || req.connection?.r
     // Generate cache key
     const cacheKey = getCacheKey(text, voice.languageCode, voice.name, speakingRate);
 
-    // Check cache
+    // 1. EARLY AUTH CHECK
+    // If we don't have credentials, fail FAST.
+    if (!client || !authReady) {
+      console.error("[TTS] Critical: No credentials available. Returning missing_creds.");
+      return res.status(200).json({
+        ok: false,
+        reason: "provider_failed",
+        error: "missing_creds",
+        detail: "TTS Service has no credentials configured."
+      });
+    }
+
     // Check cache
     const cachedAudio = getCachedAudio(cacheKey);
     if (cachedAudio) {
@@ -253,24 +264,34 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || req.connection?.r
       audioConfig: { audioEncoding: "MP3", speakingRate },
     };
 
-    // WRAP GOOGLE CALL IN 3s TIMEOUT
+    // WRAP GOOGLE CALL IN 12s TIMEOUT
+    const TIMEOUT_MS = 12000;
     const ttsPromise = client.synthesizeSpeech(request);
     const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('TTS_PROVIDER_TIMEOUT')), 3000)
+      setTimeout(() => reject(new Error('TTS_PROVIDER_TIMEOUT')), TIMEOUT_MS)
     );
 
     let response;
+    const startTime = Date.now();
+    console.log("[TTS] start request to Google...");
+
     try {
       const [apiResponse] = await Promise.race([ttsPromise, timeoutPromise]);
       response = apiResponse;
+
+      const duration = Date.now() - startTime;
+      console.log(`[TTS] response received in ${duration}ms`);
+
     } catch (err) {
-      console.error("[TTS] Google API Error/Timeout:", err.message);
+      const duration = Date.now() - startTime;
+      console.error(`[TTS] Google API Failed after ${duration}ms. Error: ${err.message}`);
+
       // Return JSON 200 with error
       return res.status(200).json({
         ok: false,
         reason: "provider_failed",
-        error: "tts_timeout",
-        detail: "Provider took too long or failed"
+        error: err.message === 'TTS_PROVIDER_TIMEOUT' ? "tts_timeout" : "tts_failed",
+        detail: err.message
       });
     }
 
