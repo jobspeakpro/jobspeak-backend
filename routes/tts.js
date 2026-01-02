@@ -22,13 +22,9 @@ function loadServiceAccountFromEnv() {
   }
 
   try {
-    // Handle common Railway paste formats:
-    // 1) raw JSON
-    // 2) JSON stringified (starts/ends with quotes)
-    // 3) contains literal \n sequences
     let s = raw.trim();
 
-    // If the whole thing is quoted, unquote by JSON parsing once
+    // If wrapped in quotes, unquote once
     if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
       try {
         s = JSON.parse(s);
@@ -38,9 +34,7 @@ function loadServiceAccountFromEnv() {
       }
     }
 
-    // Convert escaped newlines into real newlines if needed
-    s = s.replace(/\\n/g, "\n");
-
+    // DO NOT replace \\n before JSON.parse - it corrupts the JSON
     const creds = JSON.parse(s);
 
     // Validate required fields
@@ -48,10 +42,16 @@ function loadServiceAccountFromEnv() {
       return { ok: false, error: "bad_creds_shape" };
     }
 
+    // Normalize private_key AFTER parse only
+    if (typeof creds.private_key === "string") {
+      // If it contains literal backslash-n sequences, convert to real newlines for Google client
+      creds.private_key = creds.private_key.replace(/\\n/g, "\n");
+    }
+
     return { ok: true, creds };
   } catch (e) {
     console.error("[TTS] Credential parse error:", e.message);
-    return { ok: false, error: "creds_parse_failed" };
+    return { ok: false, error: "creds_parse_failed", detail: e.message };
   }
 }
 
