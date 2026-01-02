@@ -250,6 +250,11 @@ app.get("/api/tts/health", (req, res) => {
       });
     }
 
+    // Normalize private_key AFTER parse only
+    if (typeof creds.private_key === "string") {
+      creds.private_key = creds.private_key.replace(/\\n/g, "\n");
+    }
+
     return res.json({
       ok: true,
       ttsReady: true,
