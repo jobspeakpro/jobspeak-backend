@@ -194,11 +194,27 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || req.connection?.r
       audioConfig: { audioEncoding: "MP3", speakingRate },
     };
 
-    const [response] = await client.synthesizeSpeech(request);
+    // WRAP GOOGLE CALL IN 3s TIMEOUT
+    const ttsPromise = client.synthesizeSpeech(request);
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('TTS_PROVIDER_TIMEOUT')), 3000)
+    );
+
+    let response;
+    try {
+      const [apiResponse] = await Promise.race([ttsPromise, timeoutPromise]);
+      response = apiResponse;
+    } catch (err) {
+      if (err.message === 'TTS_PROVIDER_TIMEOUT') {
+        console.error("[TTS] Google API Timed out (3s)");
+        return res.status(502).json({ error: "tts_timeout", detail: "Provider took too long" });
+      }
+      throw err; // Re-throw for outer catch
+    }
 
     if (!response || !response.audioContent) {
-      console.error("[TTS] Missing audioContent");
-      return res.status(502).json({ error: "tts_failed" });
+      console.error("[TTS] Missing audioContent in provider response");
+      return res.status(502).json({ error: "tts_failed", detail: "No audio content returned" });
     }
 
     const audioBuffer = Buffer.isBuffer(response.audioContent)
@@ -215,7 +231,8 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || req.connection?.r
     return res.status(200).send(audioBuffer);
   } catch (err) {
     console.error("[TTS] synthesizeSpeech failed:", err?.message || err);
-    return res.status(502).json({ error: "tts_failed" });
+    // Return 502 only for real errors, but valid JSON
+    return res.status(502).json({ error: "tts_failed", message: err.message });
   }
 });
 

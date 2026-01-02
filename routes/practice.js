@@ -205,11 +205,12 @@ router.post(["/practice/answer", "/answer"], async (req, res) => {
                 attemptError = err;
             }
         }
-        console.log(`[PRACTICE ANSWER] ${Date.now() - startTime}ms - Supabase insert complete`);
-
         if (attemptError) {
-            console.error('[PRACTICE ANSWER] Error saving attempt:', attemptError);
-            return res.status(500).json({ error: 'Failed to save answer' });
+            console.error('[PRACTICE ANSWER] DB Insert Failed (Non-fatal):', attemptError);
+            // DO NOT RETURN 500. Continue to generation.
+            // We will add a 'saved: false' flag to the response
+        } else {
+            console.log(`[PRACTICE ANSWER] ${Date.now() - startTime}ms - Supabase insert complete`);
         }
 
         console.log(`[PRACTICE ANSWER] ${Date.now() - startTime}ms - Fetching session progress`);
@@ -299,7 +300,8 @@ router.post(["/practice/answer", "/answer"], async (req, res) => {
             hireLikelihoodAfterRewrite: hireLikelihoodData.hireLikelihoodAfterRewrite,
             why: hireLikelihoodData.why,
             feedback: evaluation.bullets, // Keep for backward compatibility
-            progress
+            progress,
+            saved: !attemptError // Flag to indicate if persistence succeeded
         }));
 
     } catch (error) {

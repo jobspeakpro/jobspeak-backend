@@ -105,12 +105,15 @@ const isDevelopment = process.env.NODE_ENV !== "production";
 const allowedOrigins = [
   "https://www.jobspeakpro.com",
   "https://jobspeakpro.com",
+  // Add Vercel preview domains if strictly needed, but wildcard is unsafe
+  // Better to rely on FRONTEND_ORIGIN env var for dynamic previews
 ];
 
 // Vite frontend origins for local development
 const viteOrigins = [
   "http://localhost:5173",
   "http://localhost:5174",
+  "http://localhost:3000"
 ];
 
 const corsOptions = {
