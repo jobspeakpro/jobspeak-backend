@@ -10,18 +10,24 @@ import { QUESTION_BANK } from './expandedQuestionBank.js';
  * Default interviewer persona
  */
 const DEFAULT_INTERVIEWER = {
-    name: "Alex Morgan",
-    title: "Senior Hiring Manager",
+    name: "Sarah Jenkins",
+    title: "Lead Technical Recruiter",
     avatarUrl: null,
-    voiceId: "en-US-Neural2-J"
+    voiceId: "en-US-Studio-O",
+    languageCode: "en-US"
 };
 
 /**
- * Generate deterministic seed for daily rotation
+ * Generate deterministic seed for rotation
+ * @param {string} userKey - User identifier
+ * @param {string} [sessionId] - Optional session identifier for per-session rotation
+ * @returns {number} Seed for random number generator
  */
-function getDailySeed(userKey) {
-    const today = getTodayUTC();
-    const seedString = `${userKey}-${today}`;
+function getRotationSeed(userKey, sessionId = null) {
+    // If sessionId provided, use it for per-session rotation
+    // Otherwise fall back to date-based rotation
+    const rotationKey = sessionId || getTodayUTC();
+    const seedString = `${userKey}-${rotationKey}`;
     const hash = crypto.createHash('md5').update(seedString).digest('hex');
     return parseInt(hash.substring(0, 8), 16);
 }
@@ -115,7 +121,8 @@ export function selectPersonalizedQuestions(params) {
         seniority = 'mid-level',
         focusAreas = [],
         askedQuestionIds = [], // Last 30 asked questions to avoid
-        includeBreakdown = false // For mock interviews
+        includeBreakdown = false, // For mock interviews
+        sessionId = null // Optional session ID for per-session rotation
     } = params;
 
     // Map to role family and seniority level
@@ -146,8 +153,8 @@ export function selectPersonalizedQuestions(params) {
 
     scoredCandidates.sort((a, b) => b.relevance - a.relevance);
 
-    // Apply deterministic daily shuffle to top candidates
-    const seed = getDailySeed(userKey);
+    // Apply deterministic shuffle to top candidates (per-session if sessionId provided)
+    const seed = getRotationSeed(userKey, sessionId);
     const topCandidates = scoredCandidates.slice(0, Math.min(count * 3, scoredCandidates.length));
     const shuffled = seededShuffle(topCandidates, seed);
 

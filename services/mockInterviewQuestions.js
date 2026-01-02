@@ -227,14 +227,28 @@ const QUESTION_BANK = [
 ];
 
 /**
+ * Available interviewer personas
+ */
+const INTERVIEWERS = {
+    alexMorgan: {
+        name: "Alex Morgan",
+        title: "Senior Hiring Manager",
+        avatarUrl: null, // Frontend can use default avatar
+        voiceId: "en-US-Neural2-J" // Google Cloud TTS voice (professional, neutral)
+    },
+    sarahJenkins: {
+        name: "Sarah Jenkins",
+        title: "Lead Technical Recruiter",
+        avatarUrl: null, // Frontend can use default avatar
+        voiceId: "en-US-Studio-O", // Google Cloud TTS Studio voice (reserved exclusively for Sarah Jenkins)
+        languageCode: "en-US"
+    }
+};
+
+/**
  * Default interviewer persona
  */
-const DEFAULT_INTERVIEWER = {
-    name: "Alex Morgan",
-    title: "Senior Hiring Manager",
-    avatarUrl: null, // Frontend can use default avatar
-    voiceId: "en-US-Neural2-J" // Google Cloud TTS voice (professional, neutral)
-};
+const DEFAULT_INTERVIEWER = INTERVIEWERS.sarahJenkins;
 
 /**
  * Check if question matches user's role

@@ -32,11 +32,16 @@ async function verifyVocab() {
         console.log();
 
         // Test 1: All vocabulary items have partOfSpeech
+        // Test 1: All vocabulary items have checks
         const hasPos = vocab.every(v => v.partOfSpeech && typeof v.partOfSpeech === 'string');
-        if (hasPos) {
-            console.log("✅ PASS: All vocabulary items have 'partOfSpeech'");
+        const hasIpa = vocab.every(v => v.ipa && typeof v.ipa === 'string');
+        const hasAudio = vocab.every(v => v.audioUrl && typeof v.audioUrl === 'string' && v.audioUrl.startsWith('/api/tts'));
+
+        if (hasPos && hasIpa && hasAudio) {
+            console.log("✅ PASS: All items have partOfSpeech, ipa, and audioUrl");
         } else {
-            console.error("❌ FAIL: Some items are missing 'partOfSpeech'");
+            console.error("❌ FAIL: Missing fields", { hasPos, hasIpa, hasAudio });
+            console.log("Sample item:", vocab[0]);
             process.exit(1);
         }
 

@@ -182,6 +182,7 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || req.connection?.r
       res.setHeader("Content-Type", "audio/mpeg");
       res.setHeader("X-Cache-Hit", "true");
       res.setHeader("Cache-Control", "public, max-age=86400"); // Cache for 24h
+      console.log(`[TTS] Returning status=200 content-type=${res.getHeader('Content-Type')} (cache hit)`);
       return res.status(200).send(cachedAudio);
     }
 
@@ -210,6 +211,7 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || req.connection?.r
     res.setHeader("Content-Type", "audio/mpeg");
     res.setHeader("X-Cache-Hit", "false");
     res.setHeader("Cache-Control", "public, max-age=86400"); // Cache for 24h
+    console.log(`[TTS] Returning status=200 content-type=${res.getHeader('Content-Type')} (cache miss)`);
     return res.status(200).send(audioBuffer);
   } catch (err) {
     console.error("[TTS] synthesizeSpeech failed:", err?.message || err);

@@ -1,0 +1,20 @@
+/**
+ * Generate varied risk detail (avoid repetitive STAR wording)
+ */
+function generateRiskDetail(weaknesses, score) {
+  if (!Array.isArray(weaknesses) || weaknesses.length === 0) {
+    return "Keep practicing to refine your interview technique.";
+  }
+
+  const templates = [
+    "Add one concrete example and a measurable result so the interviewer can trust your impact.",
+    "Tie your actions to outcomes (time saved, errors reduced, customer satisfaction, revenue, etc.).",
+    "Explain your thinking step-by-step so the interviewer understands how you make decisions.",
+    "Be more specific about what you did personally and what changed because of it.",
+    "Make your answer easier to follow: quick context, your action, then the result."
+  ];
+
+  const safeScore = Number.isFinite(score) ? score : 0;
+  const index = Math.floor(safeScore / 20) % templates.length;
+  return templates[index];
+}

@@ -1,5 +1,8 @@
 // jobspeak-backend/server.js
 import dotenv from "dotenv";
+dotenv.config();
+
+import * as Sentry from "@sentry/node";
 import express from "express";
 import cors from "cors";
 import fs from "fs";
@@ -25,10 +28,12 @@ import usageRoutes from "./routes/usage.js";
 import voiceRoutes from "./voiceRoute.js";
 import { requestLogger } from "./middleware/logger.js";
 import { errorHandler } from "./middleware/errorHandler.js";
-// Sentry init removed
-const sentryInit = null;
 
-dotenv.config();
+// Initialize Sentry
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV || "development",
+});
 
 // Sentry init removed to fix crash
 // initSentry().catch(err => {
@@ -49,10 +54,8 @@ if (!fs.existsSync(tmpDir)) {
 }
 
 // ------------ MIDDLEWARE ------------
-// Sentry request handler removed
-// if (process.env.SENTRY_DSN) {
-//   app.use(sentryRequestHandler);
-// }
+// Sentry request handler (must be first)
+app.use(Sentry.Handlers.requestHandler());
 
 // Webhook endpoint needs raw body for signature verification - must be before express.json()
 app.use("/api/billing/webhook", express.raw({ type: "application/json" }));
@@ -77,6 +80,10 @@ app.use((err, req, res, next) => {
   }
   next(err);
 });
+
+// Disable ETags globally to prevent 304 Not Modified responses
+// This ensures fresh data is always returned (especially for summary endpoint)
+app.disable('etag');
 
 // Request logging
 app.use(requestLogger);
@@ -173,6 +180,11 @@ app.get("/api/health", (req, res) => {
   });
 });
 
+// TEMPORARY: Sentry test route (REMOVE AFTER CONFIRMING)
+app.get("/__sentry-test", () => {
+  throw new Error("SENTRY_BACKEND_CONFIRMED");
+});
+
 // ------------ ROUTES ------------
 // API routes (mounted under /api prefix for frontend proxy compatibility)
 // POST /api/stt - Speech-to-text endpoint
@@ -207,10 +219,8 @@ app.use((req, res) => {
   res.status(404).json({ error: "Not found" });
 });
 
-// Sentry error handler removed
-// if (process.env.SENTRY_DSN) {
-//   app.use(sentryErrorHandler);
-// }
+// Sentry error handler (must be before other error handlers)
+app.use(Sentry.Handlers.errorHandler());
 
 // Centralized error handler (must be last)
 app.use(errorHandler);
