@@ -523,7 +523,10 @@ router.get("/mock-interview/limit-status", async (req, res) => {
 
         if (isPro) {
             console.log(`[MOCK LIMIT STATUS] ✓ Pro user - unlimited access`);
-            return res.json({ canStartMock: true });
+            return res.json({
+                canStartMock: true,
+                blocked: false
+            });
         }
 
         // Free user - check if they've already completed a mock interview
@@ -543,21 +546,67 @@ router.get("/mock-interview/limit-status", async (req, res) => {
             return res.json({ canStartMock: true });
         }
 
-        if (completedSessions && completedSessions.length >= 1) {
-            console.log(`[MOCK LIMIT STATUS] ❌ Free user has already completed a mock interview`);
+        // WEEKLY LIMIT LOGIC:
+        // Free users = 1 per week (last 7 days)
+        // If completedSessions > 0 in last 7 days -> Mock limit reached
+
+        // Calculate date 7 days ago
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        const sevenDaysAgoISO = sevenDaysAgo.toISOString();
+
+        // Check for ANY completed session since 7 days ago
+        const { data: recentSessions, error: recentError } = await supabase
+            .from('mock_sessions')
+            .select('id, created_at')
+            .eq('user_id', userId)
+            .eq('completed', true)
+            .gte('created_at', sevenDaysAgoISO)
+            .limit(1);
+
+        if (recentError) {
+            console.error('[MOCK LIMIT STATUS] Error checking recent sessions:', recentError);
+            return res.json({ canStartMock: true });
+        }
+
+        if (recentSessions && recentSessions.length >= 1) {
+            const lastSession = recentSessions[0];
+            const lastSessionDate = new Date(lastSession.created_at);
+            const nextAllowedDate = new Date(lastSessionDate);
+            nextAllowedDate.setDate(nextAllowedDate.getDate() + 7);
+
+            const now = new Date();
+            const msUntilReset = nextAllowedDate - now;
+            const daysUntilReset = Math.max(0, Math.ceil(msUntilReset / (1000 * 60 * 60 * 24)));
+
+            console.log(`[MOCK LIMIT STATUS] ❌ Free user limit reached. Reset in ${daysUntilReset} days.`);
+
             return res.json({
                 canStartMock: false,
-                reason: "FREE_LIMIT_REACHED"
+                blocked: true,
+                reason: "FREE_LIMIT_REACHED",
+                message: `You've used your free mock interview for this week. Resets in ${daysUntilReset} days.`,
+                nextAllowedAt: nextAllowedDate.toISOString(),
+                resetInDays: daysUntilReset
             });
         }
 
-        console.log(`[MOCK LIMIT STATUS] ✓ Free user has not completed a mock interview yet`);
-        return res.json({ canStartMock: true });
+        console.log(`[MOCK LIMIT STATUS] ✓ Free user eligible (no recent sessions)`);
+        return res.json({
+            canStartMock: true,
+            blocked: false,
+            nextAllowedAt: null,
+            resetInDays: 0
+        });
 
     } catch (error) {
         console.error("Error checking mock interview limit status:", error);
         // Fail open - let them try, enforcement happens on /answer
-        return res.json({ canStartMock: true });
+        return res.json({
+            canStartMock: true,
+            blocked: false,
+            error: "Failed to check limit status"
+        });
     }
 });
 
@@ -758,23 +807,28 @@ router.post("/mock-interview/answer", upload.single('audioFile'), async (req, re
             const isPro = subscription?.isPro || false;
 
             if (!isPro) {
-                // Free user - check if they've already completed a mock interview
-                console.log(`[MOCK ANSWER] Free user detected, checking completed session count...`);
+                // Free user - check if they've already completed a mock interview in the last 7 days
+                console.log(`[MOCK ANSWER] Free user detected, checking weekly limit (last 7 days)...`);
 
-                const { data: completedSessions, error: countError } = await supabase
+                const sevenDaysAgo = new Date();
+                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+                const sevenDaysAgoISO = sevenDaysAgo.toISOString();
+
+                const { data: recentSessions, error: recentError } = await supabase
                     .from('mock_sessions')
                     .select('id')
                     .eq('user_id', user_id)
                     .eq('completed', true)
+                    .gte('created_at', sevenDaysAgoISO)
                     .limit(1);
 
-                if (countError) {
-                    console.error('[MOCK ANSWER] Error checking completed sessions:', countError);
+                if (recentError) {
+                    console.error('[MOCK ANSWER] Error checking recent sessions:', recentError);
                     // Don't block on error - fail open for better UX
-                } else if (completedSessions && completedSessions.length >= 1) {
-                    console.error(`[MOCK ANSWER] ❌ 403 Forbidden: Free user ${user_id} has already completed a mock interview`);
+                } else if (recentSessions && recentSessions.length >= 1) {
+                    console.error(`[MOCK ANSWER] ❌ 403 Forbidden: Free user ${user_id} has already completed a mock interview this week`);
                     return res.status(403).json({
-                        error: 'Free users can only complete one mock interview',
+                        error: 'Free users can only complete one mock interview per week',
                         code: 'FREE_LIMIT_REACHED',
                         message: 'Free users can only complete one mock interview. Upgrade to continue.',
                         upgrade: true
