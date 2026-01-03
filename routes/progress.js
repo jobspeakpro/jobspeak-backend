@@ -18,7 +18,12 @@ function shapeProgressSummaryResponse(data = {}) {
         days_practiced: data.days_practiced ?? 0,
         current_streak_days: data.current_streak_days ?? 0,
         recent_practice: data.recent_practice ?? [],
-        weekly_minutes: data.weekly_minutes ?? 0
+        weekly_minutes: data.weekly_minutes ?? 0,
+        // Frontend convenience aliases (camelCase)
+        totalSessions: data.total_practice_sessions ?? 0,
+        daysPracticed: data.days_practiced ?? 0,
+        currentStreak: data.current_streak_days ?? 0,
+        recentSessions: data.recent_practice ?? []
     };
 }
 

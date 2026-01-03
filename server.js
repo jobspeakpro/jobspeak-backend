@@ -209,6 +209,21 @@ app.get("/__sentry-test", () => {
   throw new Error("SENTRY_BACKEND_CONFIRMED");
 });
 
+// Serve onboarding audio file
+// Used by frontend for reliable audio playback
+app.get("/audio/onboarding", (req, res) => {
+  const audioPath = path.join(process.cwd(), "b2.mp3");
+  if (fs.existsSync(audioPath)) {
+    res.setHeader("Content-Type", "audio/mpeg");
+    // Cache for 1 day
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    fs.createReadStream(audioPath).pipe(res);
+  } else {
+    console.warn("[AUDIO] b2.mp3 not found at", audioPath);
+    res.status(404).json({ error: "Audio file not found" });
+  }
+});
+
 // CRITICAL: Hard-coded TTS health endpoint (app-level to avoid routing issues)
 app.get("/api/tts/health", (req, res) => {
   const raw = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;

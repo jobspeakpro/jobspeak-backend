@@ -511,7 +511,12 @@ router.get("/mock-interview/limit-status", async (req, res) => {
             return res.json({
                 canStartMock: false,
                 isGuest: true,
-                reason: "AUTH_REQUIRED"
+                reason: "AUTH_REQUIRED",
+                // Standard quota fields for consistency
+                blocked: true,
+                message: "Log in to check your mock interview limit.",
+                nextAllowedAt: null,
+                resetInDays: 0
             });
         }
 
