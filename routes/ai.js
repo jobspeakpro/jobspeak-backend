@@ -624,38 +624,6 @@ ${text} `,
     } else {
       console.log(`[AI/micro-demo] IDEMPOTENT PRACTICE - Already counted.`);
     }
-
-    // Check if recording this attempt exceeded the limit - if so, return blocked response
-    if (usage.blocked && usage.used > usage.limit) {
-      // This should not happen if limit check worked, but handle edge case
-      console.log(`[AI/micro-demo] BLOCKED AFTER RECORDING - Daily practice limit exceeded`);
-      
-      // Calculate nextAllowedAt: midnight UTC of next day
-      const now = new Date();
-      const nextDay = new Date(now);
-      nextDay.setUTCDate(nextDay.getUTCDate() + 1);
-      nextDay.setUTCHours(0, 0, 0, 0);
-      const nextAllowedAt = nextDay.toISOString();
-      
-      // Calculate hours until reset
-      const msUntilReset = nextDay - now;
-      const hoursUntilReset = Math.ceil(msUntilReset / (1000 * 60 * 60));
-      
-      return res.status(429).json({
-        blocked: true,
-        reason: "DAILY_LIMIT_REACHED",
-        message: `You've used your 3 free fixes today. Resets in ${hoursUntilReset} hours.`,
-        nextAllowedAt: nextAllowedAt,
-        error: "Daily limit of 3 practice answers reached. Upgrade to Pro for unlimited access.",
-        upgrade: true,
-        usage: {
-          used: usage.used,
-          limit: usage.limit,
-          remaining: usage.remaining,
-          blocked: usage.blocked,
-        },
-      });
-    }
   }
 
   return res.json(response);
