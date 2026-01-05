@@ -258,7 +258,23 @@ router.post("/micro-demo", rateLimiter(30, 60000, (req) => req.ip || req.connect
     if (usage.blocked) {
       console.log(`[AI/micro-demo] BLOCKED - Daily practice limit reached`);
       trackLimitHit(userKey, "daily_practice");
+      
+      // Calculate nextAllowedAt: midnight UTC of next day
+      const now = new Date();
+      const nextDay = new Date(now);
+      nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+      nextDay.setUTCHours(0, 0, 0, 0);
+      const nextAllowedAt = nextDay.toISOString();
+      
+      // Calculate hours until reset
+      const msUntilReset = nextDay - now;
+      const hoursUntilReset = Math.ceil(msUntilReset / (1000 * 60 * 60));
+      
       return res.status(429).json({
+        blocked: true,
+        reason: "DAILY_LIMIT_REACHED",
+        message: `You've used your 3 free fixes today. Resets in ${hoursUntilReset} hours.`,
+        nextAllowedAt: nextAllowedAt,
         error: "Daily limit of 3 practice answers reached. Upgrade to Pro for unlimited access.",
         upgrade: true,
         usage: {
