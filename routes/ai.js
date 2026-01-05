@@ -255,7 +255,8 @@ router.post("/micro-demo", rateLimiter(30, 60000, (req) => req.ip || req.connect
     const usage = getUsage(userKey, "practice");
     console.log(`[AI/micro-demo] Practice Usage check - userKey: ${userKey}, used: ${usage.used}/${usage.limit}`);
 
-    if (usage.blocked) {
+    // Block if already at limit OR if this attempt would exceed limit
+    if (usage.blocked || usage.used >= usage.limit) {
       console.log(`[AI/micro-demo] BLOCKED - Daily practice limit reached`);
       trackLimitHit(userKey, "daily_practice");
       
