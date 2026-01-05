@@ -258,9 +258,7 @@ router.post("/micro-demo", rateLimiter(30, 60000, (req) => req.ip || req.connect
     // Block if this attempt would exceed the limit
     // "3 free fixes" means 3 are allowed, so block the 4th attempt
     // Check BEFORE recording: if used >= limit, we've already used all 3, block the 4th
-    // But requirement says "3rd click should be blocked", so block when used >= limit - 1
-    // This allows 2 fixes, blocks the 3rd
-    if (usage.used >= usage.limit - 1) {
+    if (usage.used >= usage.limit) {
       console.log(`[AI/micro-demo] BLOCKED - Daily practice limit reached`);
       trackLimitHit(userKey, "daily_practice");
       
