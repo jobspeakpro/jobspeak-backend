@@ -148,6 +148,7 @@ router.post(["/practice/answer", "/answer"], async (req, res) => {
         const { sessionId, questionId, questionText, answerText, audioUrl } = req.body;
 
         // IDENTITY RESOLUTION - Support multiple sources with comprehensive logging
+        // Priority order: x-user-key → x-guest-key → Authorization (JWT) → body.userKey → body.sessionId
         let resolvedKey = null;
         let identitySource = null;
 
@@ -167,26 +168,62 @@ router.post(["/practice/answer", "/answer"], async (req, res) => {
             }
         }
 
-        // Priority 3: body.userKey (fallback for backward compatibility)
+        // Priority 3: Authorization header (JWT)
+        if (!resolvedKey) {
+            const authHeader = req.header('authorization') || req.header('Authorization');
+            if (authHeader && typeof authHeader === 'string') {
+                // Extract JWT token (format: "Bearer <token>")
+                const parts = authHeader.split(' ');
+                if (parts.length === 2 && parts[0].toLowerCase() === 'bearer') {
+                    const token = parts[1];
+                    // TODO: Decode JWT to get user ID
+                    // For now, use the token itself as identity (will be replaced with proper JWT decode)
+                    try {
+                        // Simple base64 decode of JWT payload (middle part)
+                        const payload = token.split('.')[1];
+                        if (payload) {
+                            const decoded = JSON.parse(Buffer.from(payload, 'base64').toString());
+                            if (decoded.sub || decoded.user_id || decoded.id) {
+                                resolvedKey = decoded.sub || decoded.user_id || decoded.id;
+                                identitySource = 'authorization-jwt';
+                            }
+                        }
+                    } catch (err) {
+                        console.log(`[PRACTICE ANSWER] JWT decode failed, skipping: ${err.message}`);
+                    }
+                }
+            }
+        }
+
+        // Priority 4: body.userKey (fallback for backward compatibility)
         if (!resolvedKey && req.body.userKey) {
             resolvedKey = req.body.userKey;
             identitySource = 'body.userKey';
         }
 
+        // Priority 5: body.sessionId (fallback of last resort)
+        if (!resolvedKey && req.body.sessionId) {
+            resolvedKey = req.body.sessionId;
+            identitySource = 'body.sessionId';
+        }
+
         // Determine identity type
         let identityType = 'guest';
-        if (resolvedKey && !resolvedKey.startsWith('guest-')) {
+        if (resolvedKey && !resolvedKey.startsWith('guest-') && !resolvedKey.startsWith('session-')) {
             identityType = 'user';
         }
 
-        // If no key provided, generate a guest key
+        // If STILL no key, return error (don't generate fallback)
         if (!resolvedKey) {
-            resolvedKey = `guest-${Date.now()}`;
-            identitySource = 'generated';
-            identityType = 'guest';
+            console.log(`[PRACTICE ANSWER] ${Date.now() - startTime}ms - No identity key provided`);
+            return res.status(400).json({
+                error: "Identity key required",
+                message: "Please provide x-user-key, x-guest-key, Authorization header, userKey, or sessionId"
+            });
         }
 
         // LOG IDENTITY RESOLUTION
+        console.log(`[PRACTICE ANSWER] IDENTITY RESOLVED:`);
         console.log(`[PRACTICE ANSWER] IDENTITY RESOLVED:`);
         console.log(`  - identityType: ${identityType}`);
         console.log(`  - identityKey: ${resolvedKey}`);
