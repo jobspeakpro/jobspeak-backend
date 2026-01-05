@@ -256,7 +256,7 @@ router.post(["/practice/answer", "/answer"], async (req, res) => {
         }
 
         // Get current usage for logging
-        const currentUsage = resolvedKey && !isPro ? getUsage(resolvedKey, "practice") : { used: 0, limit: -1, remaining: -1, blocked: false };
+        const currentUsage = resolvedKey && !isPro ? await getUsage(resolvedKey, "practice") : { used: 0, limit: -1, remaining: -1, blocked: false };
 
         // LOG USAGE CHECK
         console.log(`[PRACTICE ANSWER] USAGE CHECK:`);
@@ -469,7 +469,8 @@ router.post(["/practice/answer", "/answer"], async (req, res) => {
             const idempotencyData = `${resolvedKey.trim()}:${questionId}:${normalizedText}`;
             const attemptId = crypto.createHash('sha256').update(idempotencyData).digest('hex').substring(0, 32);
 
-            const usage = recordAttempt(resolvedKey, attemptId, "practice");
+            const usage = await recordAttempt(resolvedKey, attemptId, "practice");
+
 
             // Add usage info to response
             // Contract: Attempt 3 (used=3, limit=3) must have blocked=false and remaining=0

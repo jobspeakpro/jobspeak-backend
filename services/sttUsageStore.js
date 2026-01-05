@@ -1,15 +1,14 @@
 // jobspeak-backend/services/sttUsageStore.js
-// In-memory usage tracking with idempotency support
-// Resets on deploy (acceptable for Railway)
+// Persistent usage tracking with Supabase/Postgres
+// Replaces in-memory storage to ensure rate limiting works across deployments
+
+import { getSupabase } from './supabase.js';
 
 // Limits per type
 const LIMITS = {
   practice: 3, // 3 practice answers per day
   stt: -1,     // Unlimited STT (informational tracking only)
 };
-
-// Map structure: key = `${day}|${userKey}|${type}`, value = { used: number, attemptIds: Set<string> }
-const usageStore = new Map();
 
 /**
  * Get today's date as YYYY-MM-DD (UTC)
@@ -19,50 +18,51 @@ const getToday = () => {
 };
 
 /**
- * Get or initialize usage entry for a userKey on a given day and type
- * @param {string} userKey - User identifier
- * @param {string} type - Usage type ("practice" or "stt")
- * @param {string} day - Date string (YYYY-MM-DD), defaults to today
- * @returns {Object} - { used: number, attemptIds: Set<string> }
- */
-const getOrInit = (userKey, type = "practice", day = null) => {
-  const today = day || getToday();
-  const key = `${today}|${userKey}|${type}`;
-
-  if (!usageStore.has(key)) {
-    usageStore.set(key, { used: 0, attemptIds: new Set() });
-
-    // Only log new user initialization for practice to reduce noise
-    if (type === "practice") {
-      console.log(`[USAGE INIT] New user: ${userKey}, type: ${type}, date: ${today}, starting at 0/${LIMITS[type]}`);
-    }
-  }
-
-  return usageStore.get(key);
-};
-
-/**
  * Get current usage for a userKey
  * @param {string} userKey - User identifier
  * @param {string} type - Usage type ("practice" or "stt"), defaults to "practice"
  * @returns {Object} - { used: number, limit: number, remaining: number, blocked: boolean }
  */
-export const getUsage = (userKey, type = "practice") => {
-  const entry = getOrInit(userKey, type);
+export const getUsage = async (userKey, type = "practice") => {
+  const supabase = getSupabase();
+  const today = getToday();
   const limit = LIMITS[type] !== undefined ? LIMITS[type] : LIMITS.practice;
 
-  const used = entry.used;
-  // If limit is -1 (unlimited), remaining is also -1
-  const remaining = limit === -1 ? -1 : Math.max(0, limit - used);
-  // If limit is -1, never blocked
-  const blocked = limit === -1 ? false : used >= limit;
+  try {
+    // Query Supabase for today's usage
+    const { data, error } = await supabase
+      .from('practice_usage_daily')
+      .select('used, attempt_ids')
+      .eq('identity_key', userKey)
+      .eq('date', today)
+      .eq('type', type)
+      .single();
 
-  return {
-    used,
-    limit,
-    remaining,
-    blocked,
-  };
+    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+      console.error('[USAGE] Error fetching usage:', error);
+      throw error;
+    }
+
+    const used = data?.used || 0;
+    const remaining = limit === -1 ? -1 : Math.max(0, limit - used);
+    const blocked = limit === -1 ? false : used >= limit;
+
+    return {
+      used,
+      limit,
+      remaining,
+      blocked,
+    };
+  } catch (error) {
+    console.error('[USAGE] getUsage error:', error);
+    // Return safe defaults on error
+    return {
+      used: 0,
+      limit,
+      remaining: limit === -1 ? -1 : limit,
+      blocked: false,
+    };
+  }
 };
 
 /**
@@ -72,29 +72,91 @@ export const getUsage = (userKey, type = "practice") => {
  * @param {string} type - Usage type ("practice" or "stt"), defaults to "practice"
  * @returns {Object} - { used: number, limit: number, remaining: number, blocked: boolean, wasNew: boolean }
  */
-export const recordAttempt = (userKey, attemptId, type = "practice") => {
-  const entry = getOrInit(userKey, type);
-
-  // Check if this attemptId was already recorded (idempotency)
-  const wasNew = !entry.attemptIds.has(attemptId);
-
-  if (wasNew) {
-    entry.attemptIds.add(attemptId);
-    entry.used += 1;
-  }
-
+export const recordAttempt = async (userKey, attemptId, type = "practice") => {
+  const supabase = getSupabase();
+  const today = getToday();
   const limit = LIMITS[type] !== undefined ? LIMITS[type] : LIMITS.practice;
-  const used = entry.used;
-  const remaining = limit === -1 ? -1 : Math.max(0, limit - used);
-  const blocked = limit === -1 ? false : used >= limit;
 
-  return {
-    used,
-    limit,
-    remaining,
-    blocked,
-    wasNew,
-  };
+  try {
+    // First, try to get existing record
+    const { data: existing, error: fetchError } = await supabase
+      .from('practice_usage_daily')
+      .select('used, attempt_ids')
+      .eq('identity_key', userKey)
+      .eq('date', today)
+      .eq('type', type)
+      .single();
+
+    if (fetchError && fetchError.code !== 'PGRST116') {
+      console.error('[USAGE] Error fetching existing record:', fetchError);
+      throw fetchError;
+    }
+
+    let attemptIds = existing?.attempt_ids || [];
+    const wasNew = !attemptIds.includes(attemptId);
+
+    if (wasNew) {
+      attemptIds.push(attemptId);
+      const newUsed = (existing?.used || 0) + 1;
+
+      // Upsert the record
+      const { error: upsertError } = await supabase
+        .from('practice_usage_daily')
+        .upsert({
+          identity_key: userKey,
+          date: today,
+          type,
+          used: newUsed,
+          attempt_ids: attemptIds,
+          updated_at: new Date().toISOString(),
+        }, {
+          onConflict: 'identity_key,date,type'
+        });
+
+      if (upsertError) {
+        console.error('[USAGE] Error upserting record:', upsertError);
+        throw upsertError;
+      }
+
+      const remaining = limit === -1 ? -1 : Math.max(0, limit - newUsed);
+      const blocked = limit === -1 ? false : newUsed >= limit;
+
+      console.log(`[USAGE] Recorded attempt for ${userKey}: ${newUsed}/${limit} (${type})`);
+
+      return {
+        used: newUsed,
+        limit,
+        remaining,
+        blocked,
+        wasNew: true,
+      };
+    } else {
+      // Idempotent - attempt already recorded
+      const used = existing?.used || 0;
+      const remaining = limit === -1 ? -1 : Math.max(0, limit - used);
+      const blocked = limit === -1 ? false : used >= limit;
+
+      console.log(`[USAGE] Idempotent attempt for ${userKey}: ${used}/${limit} (${type})`);
+
+      return {
+        used,
+        limit,
+        remaining,
+        blocked,
+        wasNew: false,
+      };
+    }
+  } catch (error) {
+    console.error('[USAGE] recordAttempt error:', error);
+    // Return safe defaults on error
+    return {
+      used: 0,
+      limit,
+      remaining: limit === -1 ? -1 : limit,
+      blocked: false,
+      wasNew: false,
+    };
+  }
 };
 
 /**
@@ -103,8 +165,7 @@ export const recordAttempt = (userKey, attemptId, type = "practice") => {
  * @param {string} type - Usage type ("practice" or "stt"), defaults to "practice"
  * @returns {boolean} - true if blocked
  */
-export const isBlocked = (userKey, type = "practice") => {
-  const usage = getUsage(userKey, type);
+export const isBlocked = async (userKey, type = "practice") => {
+  const usage = await getUsage(userKey, type);
   return usage.blocked;
 };
-

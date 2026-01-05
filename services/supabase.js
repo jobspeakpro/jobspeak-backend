@@ -28,6 +28,12 @@ if (!supabaseUrl || !supabaseKey) {
 
 export { supabase };
 
+// Export function to get Supabase client
+export function getSupabase() {
+    return supabase;
+}
+
+
 export async function getProfile(userKey) {
     // Assuming userKey is the UUID from profiles table (id)
     const { data, error } = await supabase
