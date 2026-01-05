@@ -367,9 +367,10 @@ router.post(["/practice/answer", "/answer"], async (req, res) => {
         // RECORD PRACTICE ATTEMPT (Increment usage)
         // Only for authenticated free users (Pro is unlimited, Anon is session-limited elsewhere)
         if (userKey && !isPro) {
-            // Generate idempotency key: hash of userKey + normalized answer text
+            // Generate idempotency key: hash of userKey + questionId + normalized answer text
+            // Include questionId to ensure each question-answer pair is unique
             const normalizedText = (answerText || '').trim().toLowerCase().replace(/\s+/g, ' ');
-            const idempotencyData = `${userKey.trim()}:${normalizedText}`;
+            const idempotencyData = `${userKey.trim()}:${questionId}:${normalizedText}`;
             const attemptId = crypto.createHash('sha256').update(idempotencyData).digest('hex').substring(0, 32);
 
             const usage = recordAttempt(userKey, attemptId, "practice");
