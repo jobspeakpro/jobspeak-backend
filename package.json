@@ -9,7 +9,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "validate": "node validate.js"
+    "validate": "node validate.js",
+    "postinstall": "npm rebuild better-sqlite3 --build-from-source"
   },
   "dependencies": {
     "@google-cloud/text-to-speech": "^6.4.0",
