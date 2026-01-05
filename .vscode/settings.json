@@ -1,0 +1,6 @@
+{
+    "tfa.cache.autoCleanKeepCount": 3,
+    "tfa.cache.autoClean": true,
+    "tfa.cache.warningSize": 250,
+    "tfa.cache.hideEmptyFolders": true
+}
