@@ -15,6 +15,10 @@ import {
     generateHireLikelihoodComparison
 } from "../services/intelligentFeedbackGenerator.js";
 import { generateTTS } from "../services/ttsService.js";
+import { getUsage, recordAttempt } from "../services/sttUsageStore.js";
+import { getSubscription } from "../services/db.js";
+import { trackLimitHit } from "../services/analytics.js";
+import crypto from "crypto";
 
 const router = express.Router();
 
@@ -153,6 +157,61 @@ router.post(["/practice/answer", "/answer"], async (req, res) => {
             return res.status(400).json({ error: "questionId and questionText required" });
         }
 
+        // ENFORCE PRACTICE LIMIT (3/day) for free users - check BEFORE processing
+        let isPro = false;
+        if (userKey) {
+            const subscription = getSubscription(userKey);
+            if (subscription) {
+                isPro = subscription.isPro;
+                if (subscription.currentPeriodEnd) {
+                    const periodEnd = new Date(subscription.currentPeriodEnd);
+                    if (periodEnd < new Date()) isPro = false;
+                }
+                if (subscription.status && subscription.status !== "active" && subscription.status !== "trialing") {
+                    isPro = false;
+                }
+            }
+        }
+
+        if (userKey && !isPro) {
+            const usage = getUsage(userKey, "practice");
+            console.log(`[PRACTICE ANSWER] Practice Usage check - userKey: ${userKey}, used: ${usage.used}/${usage.limit}`);
+
+            // Block if this attempt would exceed the limit
+            // "3 free fixes" means 3 are allowed, so block the 4th attempt
+            // Check BEFORE recording: if used >= limit, we've already used all 3, block the 4th
+            if (usage.used >= usage.limit) {
+                console.log(`[PRACTICE ANSWER] BLOCKED - Daily practice limit reached`);
+                trackLimitHit(userKey, "daily_practice");
+                
+                // Calculate nextAllowedAt: midnight UTC of next day
+                const now = new Date();
+                const nextDay = new Date(now);
+                nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+                nextDay.setUTCHours(0, 0, 0, 0);
+                const nextAllowedAt = nextDay.toISOString();
+                
+                // Calculate hours until reset
+                const msUntilReset = nextDay - now;
+                const hoursUntilReset = Math.ceil(msUntilReset / (1000 * 60 * 60));
+                
+                return res.status(429).json({
+                    blocked: true,
+                    reason: "DAILY_LIMIT_REACHED",
+                    message: `You've used your 3 free fixes today. Resets in ${hoursUntilReset} hours.`,
+                    nextAllowedAt: nextAllowedAt,
+                    error: "Daily limit of 3 practice answers reached. Upgrade to Pro for unlimited access.",
+                    upgrade: true,
+                    usage: {
+                        used: usage.used,
+                        limit: usage.limit,
+                        remaining: usage.remaining,
+                        blocked: usage.blocked,
+                    },
+                });
+            }
+        }
+
         console.log(`[PRACTICE ANSWER] ${Date.now() - startTime}ms - Determining user identity`);
         // Determine user_id or guest_key
         let user_id = null;
@@ -287,7 +346,7 @@ router.post(["/practice/answer", "/answer"], async (req, res) => {
         }
 
         console.log(`[PRACTICE ANSWER] ${Date.now() - startTime}ms - Preparing response`);
-        return res.json(shapePracticeAnswerResponse({
+        const response = shapePracticeAnswerResponse({
             success: true,
             score: evaluation.score,
             whatWorked,
@@ -303,7 +362,34 @@ router.post(["/practice/answer", "/answer"], async (req, res) => {
             progress,
             saved: !attemptError, // Flag to indicate if persistence succeeded
             professionalism: clearerRewriteObj.professionalism // New Gate Metadata
-        }));
+        });
+
+        // RECORD PRACTICE ATTEMPT (Increment usage)
+        // Only for authenticated free users (Pro is unlimited, Anon is session-limited elsewhere)
+        if (userKey && !isPro) {
+            // Generate idempotency key: hash of userKey + normalized answer text
+            const normalizedText = (answerText || '').trim().toLowerCase().replace(/\s+/g, ' ');
+            const idempotencyData = `${userKey.trim()}:${normalizedText}`;
+            const attemptId = crypto.createHash('sha256').update(idempotencyData).digest('hex').substring(0, 32);
+
+            const usage = recordAttempt(userKey, attemptId, "practice");
+
+            // Add usage info to response
+            response.usage = {
+                used: usage.used,
+                limit: usage.limit,
+                remaining: usage.remaining,
+                blocked: usage.blocked
+            };
+
+            if (usage.wasNew) {
+                console.log(`[PRACTICE ANSWER] INCREMENTED PRACTICE - Used: ${usage.used}/${usage.limit}`);
+            } else {
+                console.log(`[PRACTICE ANSWER] IDEMPOTENT PRACTICE - Already counted.`);
+            }
+        }
+
+        return res.json(response);
 
     } catch (error) {
         console.error("Error saving practice answer:", error);
