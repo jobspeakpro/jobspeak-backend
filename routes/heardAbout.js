@@ -1,10 +1,12 @@
 // jobspeak-backend/routes/heardAbout.js
-// Minimal endpoint for setting "heard_about_us" field with write-once semantics
+// Safe endpoint for setting "heard_about_us" field with write-once semantics
 // Uses Supabase Auth user_metadata (zero-migration approach)
+// Supports JWT authentication (preferred) or userKey from body (fallback)
 
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
+import { getAuthenticatedUser } from "../middleware/auth.js";
 
 dotenv.config();
 
@@ -24,24 +26,45 @@ const supabaseAdmin = supabaseUrl && supabaseServiceKey
 
 /**
  * POST /api/profile/heard-about
- * Set the "heard_about_us" field with write-once semantics
+ * Set the "heard_about_us" field with write-once semantics (ignores if already set)
  * Stores value in Supabase Auth user_metadata (no database migration required)
  * 
- * Body: { userKey: string, value: string }
+ * Authentication: 
+ *   - Preferred: JWT token in Authorization header (Bearer token)
+ *   - Fallback: userKey in request body
+ * 
+ * Body: { userKey?: string, value: string }
  * 
  * Returns: { success: true, value: string, updated: boolean }
  */
 router.post("/heard-about", async (req, res) => {
     try {
-        const { userKey, value } = req.body;
+        const { userKey: bodyUserKey, value } = req.body;
 
-        // Validate input
-        if (!userKey) {
-            return res.status(400).json({ error: "userKey required" });
-        }
-
+        // Validate value
         if (!value) {
             return res.status(400).json({ error: "value required" });
+        }
+
+        // Resolve user ID: prefer JWT authentication, fallback to userKey from body
+        let userKey = null;
+        
+        // Try to get authenticated user from JWT token
+        const { userId, isGuest } = await getAuthenticatedUser(req);
+        
+        if (!isGuest && userId) {
+            // User authenticated via JWT token
+            userKey = userId;
+            console.log(`[HEARD_ABOUT] Using authenticated user ID: ${userKey}`);
+        } else if (bodyUserKey) {
+            // Fallback to userKey from body (backward compatibility)
+            userKey = bodyUserKey;
+            console.log(`[HEARD_ABOUT] Using userKey from body: ${userKey}`);
+        } else {
+            // No authentication method provided
+            return res.status(401).json({ 
+                error: "Authentication required. Provide JWT token in Authorization header or userKey in body." 
+            });
         }
 
         if (!supabaseAdmin) {

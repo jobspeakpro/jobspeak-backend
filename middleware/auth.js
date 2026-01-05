@@ -1,7 +1,22 @@
 // jobspeak-backend/middleware/auth.js
 // Extract authenticated user from Supabase JWT token
 
-import { supabase } from '../services/supabase.js';
+import { createClient } from '@supabase/supabase-js';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+// Create a Supabase client with anon key for user token verification
+// Service role key can also verify tokens, but anon key is more appropriate for user auth
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
+
+// Create client for token verification (use anon key if available, fallback to service role)
+const supabaseAuth = supabaseUrl && supabaseAnonKey
+    ? createClient(supabaseUrl, supabaseAnonKey, {
+        auth: { autoRefreshToken: false, persistSession: false }
+    })
+    : null;
 
 /**
  * Extract user from Supabase auth token in Authorization header
@@ -19,11 +34,16 @@ export async function getAuthenticatedUser(req) {
         return { userId: null, isGuest: true };
     }
 
+    if (!supabaseAuth) {
+        console.warn('[AUTH] Supabase auth client not configured, treating as guest');
+        return { userId: null, isGuest: true };
+    }
+
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
 
     try {
         // Verify the JWT token with Supabase
-        const { data: { user }, error } = await supabase.auth.getUser(token);
+        const { data: { user }, error } = await supabaseAuth.auth.getUser(token);
 
         if (error || !user) {
             console.log('[AUTH] Invalid or expired token, treating as guest');
