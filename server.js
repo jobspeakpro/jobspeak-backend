@@ -8,6 +8,7 @@ import cors from "cors";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { execSync } from "child_process";
 
 import accountRoutes from "./routes/account.js";
 import aiRoutes from "./routes/ai.js";
@@ -187,12 +188,25 @@ app.get("/", (req, res) => {
   res.json({ status: "ok", message: "JobSpeakPro backend running" });
 });
 
+// Get commit hash at startup (fallback to env var or unknown)
+let commitHash = process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || process.env.COMMIT_HASH || 'unknown';
+if (commitHash === 'unknown') {
+  try {
+    commitHash = execSync('git rev-parse --short HEAD', { encoding: 'utf8', timeout: 1000 }).trim();
+  } catch (e) {
+    // Git not available or command failed, use 'unknown'
+    commitHash = 'unknown';
+  }
+}
+
 // GET /health - Production health check endpoint
 app.get("/health", (req, res) => {
   res.status(200).json({
     ok: true,
     timestamp: new Date().toISOString(),
-    service: "JobSpeakPro Backend"
+    service: "JobSpeakPro Backend",
+    commit: commitHash,
+    version: commitHash.substring(0, 7) // Short commit hash for display
   });
 });
 
@@ -201,7 +215,9 @@ app.get("/api/health", (req, res) => {
   res.status(200).json({
     ok: true,
     timestamp: new Date().toISOString(),
-    service: "JobSpeakPro Backend (Alias)"
+    service: "JobSpeakPro Backend",
+    commit: commitHash,
+    version: commitHash.substring(0, 7) // Short commit hash for display
   });
 });
 
