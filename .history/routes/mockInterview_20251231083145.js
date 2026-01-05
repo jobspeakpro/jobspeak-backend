@@ -1,0 +1,440 @@
+// jobspeak-backend/routes/mockInterview.js
+import express from "express";
+import {
+    getMockInterviewAttempt,
+    markMockInterviewUsed,
+    saveMockInterview,
+    getSubscription
+} from "../services/db.js";
+import { getProfile, supabase } from "../services/supabase.js";
+import { generateMockInterviewQuestions } from "../services/personalizedQuestionSelector.js";
+import { evaluateAnswer } from "../services/answerEvaluator.js";
+import { generateSessionSummary, getHiringRecommendation } from "../services/summaryGenerator.js";
+
+const router = express.Router();
+
+/**
+ * Shape function for /api/mock-interview/summary response
+ * Ensures all keys are present with safe defaults
+ */
+function shapeMockSummaryResponse(data = {}) {
+    return {
+        sessionId: data.sessionId ?? "",
+        attemptCount: data.attemptCount ?? 0,
+        overall_score: data.overall_score ?? 0,
+        strengths: data.strengths ?? [],
+        weaknesses: data.weaknesses ?? [],
+        improvements: data.improvements ?? [],
+        points_to_focus: data.points_to_focus ?? [],
+        risks: data.risks ?? [],
+        biggest_risk: data.biggest_risk ?? "No major risks identified",
+        biggestRisk: data.biggestRisk ?? "No major risks identified",
+        bullets: data.bullets ?? [],
+        recommendation: data.recommendation ?? "not_recommended_yet",
+        completed: data.completed ?? false
+    };
+}
+
+/**
+ * MOCK INTERVIEW STRUCTURE
+ * 
+ * SHORT FORMAT:
+ * - 5 questions
+ * - ~10 minutes duration
+ * - Per-question scoring: clarity, structure, relevance, communication
+ * 
+ * LONG FORMAT:
+ * - 10-12 questions
+ * - ~25 minutes duration
+ * - Per-question scoring: clarity, structure, relevance, communication
+ * 
+ * OVERALL SCORING:
+ * - Aggregated from per-question scores
+ * - Range: 0-100
+ * 
+ * HIRING RECOMMENDATION (not badges):
+ * - strong_recommend: score >= 80
+ * - recommend_with_reservations: score >= 60
+ * - not_recommended_yet: score < 60
+ * 
+ * GATING:
+ * - Free users: ONE mock interview EVER (not per day)
+ * - Pro users: Unlimited
+ */
+
+
+// GET /api/mock-interview/status?userKey=...
+router.get("/mock-interview/status", async (req, res) => {
+    try {
+        let { userKey } = req.query;
+
+        // Guest-friendly: generate guest key if missing
+        if (!userKey) {
+            userKey = `guest-${Date.now()}`;
+            console.log(`[MOCK STATUS] Generated guest key: ${userKey}`);
+        }
+
+        // Check if user is Pro
+        const subscription = getSubscription(userKey);
+        const isPro = subscription?.isPro || false;
+
+        // Check attempt status
+        const attempt = getMockInterviewAttempt(userKey);
+        const used = attempt.used === 1;
+
+        // Determine if allowed
+        const allowed = isPro || !used;
+
+        return res.json({
+            used,
+            is_pro: isPro,
+            allowed,
+        });
+    } catch (error) {
+        console.error("Error checking mock interview status:", error);
+        return res.status(500).json({ error: "Failed to check status" });
+    }
+});
+
+// POST /api/mock-interview/start
+router.post("/mock-interview/start", async (req, res) => {
+    try {
+        let { userKey, interviewType } = req.body;
+
+        // Guest-friendly: generate guest key if missing
+        if (!userKey) {
+            userKey = `guest-${Date.now()}`;
+            console.log(`[MOCK START] Generated guest key: ${userKey}`);
+        }
+
+        if (!interviewType || !['short', 'long'].includes(interviewType)) {
+            return res.status(400).json({ error: "interviewType must be 'short' or 'long'" });
+        }
+
+        // Check if user is Pro
+        const subscription = getSubscription(userKey);
+        const isPro = subscription?.isPro || false;
+
+        if (isPro) {
+            // Pro users always allowed
+            return res.json({ allowed: true, reason: "pro_unlimited" });
+        }
+
+        // Check if free attempt already used
+        const attempt = getMockInterviewAttempt(userKey);
+
+        if (attempt.used === 1) {
+            // Free attempt already used - require upgrade
+            return res.status(403).json({
+                upgrade: true,
+                reason: "mock_interview_limit"
+            });
+        }
+
+        // Mark attempt as used
+        markMockInterviewUsed(userKey);
+
+        return res.json({
+            allowed: true,
+            reason: "free_attempt",
+            message: "Mock interview started. This is your one free attempt."
+        });
+    } catch (error) {
+        console.error("Error starting mock interview:", error);
+        return res.status(500).json({ error: "Failed to start mock interview" });
+    }
+});
+
+// GET /api/mock-interview/questions?userKey=...&type=short|long&sessionId=...
+router.get("/mock-interview/questions", async (req, res) => {
+    try {
+        let { userKey, type, sessionId } = req.query;
+
+        // Guest-friendly: generate guest key if missing
+        if (!userKey) {
+            userKey = `guest-${Date.now()}`;
+            console.log(`[MOCK QUESTIONS] Generated guest key: ${userKey}`);
+        }
+
+        // Generate sessionId if not provided (for per-session rotation)
+        if (!sessionId) {
+            sessionId = `session-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+            console.log(`[MOCK QUESTIONS] Generated sessionId: ${sessionId}`);
+        }
+
+        // Only 400 for invalid type
+        if (!type || !['short', 'long'].includes(type)) {
+            return res.status(400).json({ error: "type must be 'short' or 'long'" });
+        }
+
+        // Fetch user profile for personalization (graceful fallback if Supabase unavailable)
+        let profile = {};
+        try {
+            const userProfile = await getProfile(userKey);
+            if (userProfile) {
+                profile = {
+                    job_title: userProfile.job_title,
+                    industry: userProfile.industry,
+                    seniority: userProfile.seniority,
+                    focus_areas: userProfile.focus_areas || []
+                };
+                console.log(`[MOCK QUESTIONS] Using profile for ${userKey}`);
+            } else {
+                console.log(`[MOCK QUESTIONS] No profile found, using defaults`);
+            }
+        } catch (profileError) {
+            console.warn(`[MOCK QUESTIONS] Profile lookup failed (using defaults):`, profileError.message);
+            // Continue with empty profile - graceful fallback
+        }
+
+        // Generate personalized questions with sessionId for per-session rotation
+        const result = generateMockInterviewQuestions({
+            userKey,
+            type,
+            jobTitle: profile.job_title,
+            industry: profile.industry,
+            seniority: profile.seniority,
+            focusAreas: profile.focus_areas,
+            askedQuestionIds: [], // TODO: Track asked questions per user
+            sessionId // Pass sessionId for per-session rotation
+        });
+
+        // Format response to match frontend contract
+        const formattedQuestions = result.questions.map(q => ({
+            id: q.id,
+            category: q.category.toUpperCase(), // Uppercase for frontend
+            difficulty: q.difficulty.toUpperCase(), // Uppercase for frontend
+            text: q.prompt, // Primary field for frontend
+            prompt: q.prompt, // Backward compatibility
+            hint: q.hint
+        }));
+
+        return res.json({
+            sessionId, // Return sessionId so frontend can reuse on refresh
+            interviewer: result.interviewer,
+            questions: formattedQuestions
+        });
+
+    } catch (error) {
+        console.error("Error generating mock interview questions:", error);
+        return res.status(500).json({ error: "Failed to generate questions" });
+    }
+});
+
+// POST /api/mock-interview/answer
+router.post("/mock-interview/answer", async (req, res) => {
+    try {
+        const { userKey, sessionId, questionId, questionText, answerText, audioUrl } = req.body;
+
+        if (!sessionId) {
+            return res.status(400).json({ error: "sessionId required" });
+        }
+
+        if (!questionId || !questionText) {
+            return res.status(400).json({ error: "questionId and questionText required" });
+        }
+
+        // Determine user_id or guest_key
+        let user_id = null;
+        let guest_key = null;
+
+        if (userKey && !userKey.startsWith('guest-')) {
+            user_id = userKey;
+        } else {
+            guest_key = userKey || `guest-${Date.now()}`;
+        }
+
+        // Ensure session exists
+        const { data: existingSession } = await supabase
+            .from('mock_sessions')
+            .select('*')
+            .eq('session_id', sessionId)
+            .single();
+
+        if (!existingSession) {
+            // Create session if it doesn't exist
+            const { error: sessionError } = await supabase
+                .from('mock_sessions')
+                .insert({
+                    session_id: sessionId,
+                    user_id,
+                    guest_key,
+                    interview_type: 'short', // Default, will be updated
+                    completed: false
+                });
+
+            if (sessionError) {
+                console.error('[MOCK ANSWER] Error creating session:', sessionError);
+                return res.status(500).json({ error: 'Failed to create session' });
+            }
+        }
+
+        // Evaluate answer
+        const evaluation = evaluateAnswer(questionText, answerText || '');
+
+        // Save attempt
+        console.log(`[MOCK ANSWER] Inserting attempt with session_id: ${sessionId}`);
+        const { data: attempt, error: attemptError } = await supabase
+            .from('mock_attempts')
+            .insert({
+                session_id: sessionId,
+                question_id: questionId,
+                question_text: questionText,
+                answer_text: answerText,
+                audio_url: audioUrl,
+                score: evaluation.score,
+                feedback: evaluation.feedback
+            })
+            .select()
+            .single();
+
+        console.log(`[MOCK ANSWER] Attempt inserted:`, attempt ? `id=${attempt.id}, session_id=${attempt.session_id}` : 'null');
+
+        if (attemptError) {
+            console.error('[MOCK ANSWER] Error saving attempt:', attemptError);
+            return res.status(500).json({ error: 'Failed to save answer' });
+        }
+
+        // Get session progress
+        console.log(`[MOCK ANSWER] Querying attempts for session_id: ${sessionId}`);
+        const { data: attempts } = await supabase
+            .from('mock_attempts')
+            .select('*')
+            .eq('session_id', sessionId);
+
+        console.log(`[MOCK ANSWER] Found ${attempts?.length || 0} attempts for session ${sessionId}`);
+
+        const progress = {
+            answered: attempts?.length || 1,
+            score: evaluation.score,
+            feedback: evaluation.bullets
+        };
+
+        console.log(`[MOCK ANSWER] Saved answer for session ${sessionId}, score: ${evaluation.score}`);
+
+        return res.json({
+            success: true,
+            score: evaluation.score,
+            feedback: evaluation.bullets,
+            progress
+        });
+
+    } catch (error) {
+        console.error("Error saving mock interview answer:", error);
+        return res.status(500).json({ error: "Failed to save answer" });
+    }
+});
+
+// GET /api/mock-interview/summary?sessionId=...
+router.get("/mock-interview/summary", async (req, res) => {
+    try {
+        const { sessionId } = req.query;
+
+        if (!sessionId) {
+            return res.status(400).json({ error: "sessionId required" });
+        }
+
+        // Fetch all attempts for this session
+        console.log(`[MOCK SUMMARY] Querying attempts for session_id: ${sessionId}`);
+        const { data: attempts, error: attemptsError } = await supabase
+            .from('mock_attempts')
+            .select('*')
+            .eq('session_id', sessionId)
+            .order('created_at', { ascending: true });
+
+        console.log(`[MOCK SUMMARY] Query returned ${attempts?.length || 0} attempts`);
+        if (attempts && attempts.length > 0) {
+            console.log(`[MOCK SUMMARY] First attempt session_id: ${attempts[0].session_id}`);
+        }
+
+        if (attemptsError) {
+            console.error('[MOCK SUMMARY] Error fetching attempts:', attemptsError);
+            return res.status(500).json({ error: 'Failed to fetch attempts' });
+        }
+
+        // Generate summary from real attempts
+        const summary = generateSessionSummary(attempts || [], 'mock');
+        const recommendation = getHiringRecommendation(summary.overall_score);
+
+        // Update session with computed summary
+        const { error: updateError } = await supabase
+            .from('mock_sessions')
+            .update({
+                overall_score: summary.overall_score,
+                summary: {
+                    strengths: summary.strengths,
+                    weaknesses: summary.weaknesses,
+                    bullets: summary.bullets,
+                    recommendation
+                },
+                completed: summary.completed
+            })
+            .eq('session_id', sessionId);
+
+        if (updateError) {
+            console.error('[MOCK SUMMARY] Error updating session:', updateError);
+        }
+
+        console.log(`[MOCK SUMMARY] Generated summary for session ${sessionId}, score: ${summary.overall_score}, attempts: ${attempts?.length || 0}`);
+
+        return res.json(shapeMockSummaryResponse({
+            sessionId,
+            attemptCount: attempts?.length || 0,
+            overall_score: summary.overall_score,
+            strengths: summary.strengths,
+            weaknesses: summary.weaknesses, // Keep for compat
+            improvements: summary.weaknesses, // Requested field
+            points_to_focus: summary.weaknesses, // potential variant
+            risks: [], // No specific risks logic yet
+            biggest_risk: summary.weaknesses[0] || "No major risks identified",
+            biggestRisk: summary.weaknesses[0] || "No major risks identified",
+            bullets: summary.bullets,
+            recommendation,
+            completed: summary.completed
+        }));
+
+    } catch (error) {
+        console.error("Error generating mock interview summary:", error);
+        return res.status(500).json({ error: "Failed to generate summary" });
+    }
+});
+
+// POST /api/mock-interview/complete
+router.post("/mock-interview/complete", async (req, res) => {
+    try {
+        const { userKey, interviewType, overallScore } = req.body;
+
+        if (!userKey) {
+            return res.status(400).json({ error: "userKey required" });
+        }
+
+        if (!interviewType || !['short', 'long'].includes(interviewType)) {
+            return res.status(400).json({ error: "interviewType must be 'short' or 'long'" });
+        }
+
+        if (overallScore === undefined || overallScore === null) {
+            return res.status(400).json({ error: "overallScore required" });
+        }
+
+        const score = parseInt(overallScore, 10);
+        if (isNaN(score) || score < 0 || score > 100) {
+            return res.status(400).json({ error: "overallScore must be an integer between 0 and 100" });
+        }
+
+        // Save mock interview
+        const interview = saveMockInterview(userKey, interviewType, score);
+
+        return res.json({
+            id: interview.id,
+            interview_type: interview.interview_type,
+            overall_score: interview.overall_score,
+            hiring_recommendation: interview.hiring_recommendation,
+            created_at: interview.created_at,
+        });
+    } catch (error) {
+        console.error("Error completing mock interview:", error);
+        return res.status(500).json({ error: "Failed to save mock interview" });
+    }
+});
+
+export default router;

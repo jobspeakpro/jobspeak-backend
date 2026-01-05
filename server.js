@@ -175,7 +175,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-user-key", "x-attempt-id", "X-Attempt-Id"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-user-key", "x-guest-key", "x-attempt-id", "X-Attempt-Id"],
   optionsSuccessStatus: 204,
 };
 
