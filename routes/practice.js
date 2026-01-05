@@ -375,11 +375,13 @@ router.post(["/practice/answer", "/answer"], async (req, res) => {
             const usage = recordAttempt(userKey, attemptId, "practice");
 
             // Add usage info to response
+            // Contract: Attempt 3 (used=3, limit=3) must have blocked=false and remaining=0
+            // blocked should only be true when used > limit (exceeded), not when used === limit (at limit)
             response.usage = {
                 used: usage.used,
                 limit: usage.limit,
                 remaining: usage.remaining,
-                blocked: usage.blocked
+                blocked: usage.used > usage.limit // Only true if exceeded, not if at limit
             };
 
             if (usage.wasNew) {
