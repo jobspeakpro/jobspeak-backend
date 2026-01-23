@@ -55,7 +55,13 @@ router.get("/dashboard/summary", async (req, res) => {
         };
 
         try {
-            // Determine identity (already resolved above)
+            // Determine identity (using refactored helper)
+            const { user_id: userId, identity_key: guestKey, mode, usedValue } = resolveIdentity(req);
+
+            // Set identity headers
+            res.setHeader('x-identity-used', usedValue || 'none');
+            res.setHeader('x-identity-mode', mode);
+
             debugInfo.userId = userId;
             debugInfo.guestKeyFromHeader = req.header('x-guest-key') || null;
 

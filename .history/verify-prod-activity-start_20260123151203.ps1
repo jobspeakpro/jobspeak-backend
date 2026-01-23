@@ -5,10 +5,7 @@ $guestKey = "PROOF-GUEST-123"
 Write-Host "`n--- STEP 1: POST ACTIVITY START (PROD) ---"
 $body = @{
     activityType = "practice"
-    context      = @{ 
-        source = "prove"
-        tabId  = "verify-$(Get-Date -Format 'yyyyMMddHHmmss')" 
-    }
+    context      = @{ source = "prove" }
 } | ConvertTo-Json -Depth 5
 
 $startResponse = Invoke-WebRequest -Uri "$baseUrl/api/activity/start" -Method Post -Body $body -ContentType "application/json" -Headers @{ "x-guest-key" = $guestKey; "Origin" = "https://jobspeakpro.com" }

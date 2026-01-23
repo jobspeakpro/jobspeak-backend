@@ -9,28 +9,22 @@ const router = express.Router();
 // GET /api/dashboard/summary?userKey=...
 router.get("/dashboard/summary", async (req, res) => {
     try {
-        // Resolve identity (using refactored helper)
-        const { user_id: userId, identity_key: guestKey, mode, usedValue } = resolveIdentity(req);
+        const { userKey } = req.query;
+        const headerGuestKey = req.header('x-guest-key');
 
-        // Set identity headers
-        res.setHeader('x-identity-used', usedValue || 'none');
-        res.setHeader('x-identity-mode', mode);
-
-        if (!usedValue) {
-            return res.status(400).json({ error: "identity required" });
+        if (!userKey) {
+            return res.status(400).json({ error: "userKey required" });
         }
 
-        const userKey = usedValue; // for backward compatibility in the code below
-
         // Get total practice sessions (from sessions table)
-        const sessions = getSessions(usedValue, 1000); // Get all sessions to count
+        const sessions = getSessions(userKey, 1000); // Get all sessions to count
         const total_practice_sessions = sessions.length;
 
         // Get total mock interviews
-        const total_mock_interviews = getMockInterviewCount(usedValue);
+        const total_mock_interviews = getMockInterviewCount(userKey);
 
         // Get last mock interview
-        const lastMock = getLastMockInterview(usedValue);
+        const lastMock = getLastMockInterview(userKey);
 
         let last_mock_interview = null;
         if (lastMock) {
@@ -55,7 +49,13 @@ router.get("/dashboard/summary", async (req, res) => {
         };
 
         try {
-            // Determine identity (already resolved above)
+            // Determine identity (using refactored helper)
+            const { user_id: userId, identity_key: guestKey, mode, usedValue } = resolveIdentity(req);
+
+            // Set identity headers
+            res.setHeader('x-identity-used', usedValue || 'none');
+            res.setHeader('x-identity-mode', mode);
+
             debugInfo.userId = userId;
             debugInfo.guestKeyFromHeader = req.header('x-guest-key') || null;
 

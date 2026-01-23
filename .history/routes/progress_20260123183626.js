@@ -55,16 +55,11 @@ function shapeProgressResponse(data = {}) {
  */
 router.get("/progress/summary", async (req, res) => {
     try {
-        // Resolve identity (using refactored helper)
-        const { user_id, identity_key, mode, usedValue } = resolveIdentity(req);
-
-        // Set identity headers
-        res.setHeader('x-identity-used', usedValue || 'none');
-        res.setHeader('x-identity-mode', mode);
+        const { userKey } = req.query;
 
         // Support both authenticated and guest users
         // If no userKey, return empty data (don't break dashboard)
-        if (!usedValue) {
+        if (!userKey) {
             return res.json(shapeProgressSummaryResponse({
                 total_practice_sessions: 0,
                 days_practiced: 0,
@@ -75,7 +70,7 @@ router.get("/progress/summary", async (req, res) => {
         }
 
         // Get all sessions for user (we'll process them for stats)
-        const sessions = getSessions(usedValue, 1000); // Get all sessions
+        const sessions = getSessions(userKey, 1000); // Get all sessions
 
         if (!sessions || sessions.length === 0) {
             // Return zeros if no sessions

@@ -104,11 +104,7 @@ router.post("/activity/start", async (req, res) => {
         }
 
         // Resolve identity
-        const { user_id, identity_key, mode, usedValue } = resolveIdentity(req);
-
-        // Set identity headers
-        res.setHeader('x-identity-used', usedValue || 'none');
-        res.setHeader('x-identity-mode', mode);
+        const { user_id, identity_key, source } = resolveIdentity(req);
 
         // If no identity, return success but not stored
         if (!user_id && !identity_key) {
@@ -120,7 +116,7 @@ router.post("/activity/start", async (req, res) => {
             });
         }
 
-        console.log(`[ACTIVITY] Recording activity: type=${activityType}, mode=${mode}, usedValue=${usedValue || 'null'}`);
+        console.log(`[ACTIVITY] Recording activity: type=${activityType}, source=${source}, user_id=${user_id || 'null'}, identity_key=${identity_key || 'null'}`);
 
         // Prepare insert data
         const insertData = {
@@ -169,8 +165,8 @@ router.post("/activity/start", async (req, res) => {
             ok: true,
             stored: true,
             id: data.id,
-            identityKey: usedValue,
-            identitySource: mode,
+            identityKey: identity_key || user_id,
+            identitySource: source,
             commit
         });
 
@@ -210,18 +206,14 @@ router.get("/activity/events", async (req, res) => {
         const maxLimit = Math.min(parseInt(limit, 10) || 50, 100);
 
         // Resolve identity
-        const { user_id, identity_key, mode, usedValue } = resolveIdentity(req);
-
-        // Set identity headers
-        res.setHeader('x-identity-used', usedValue || 'none');
-        res.setHeader('x-identity-mode', mode);
+        const { user_id, identity_key, source } = resolveIdentity(req);
 
         // If no identity, return empty
-        if (!usedValue) {
+        if (!user_id && !identity_key) {
             return res.json({ events: [], total: 0 });
         }
 
-        console.log(`[ACTIVITY] Fetching events: mode=${mode}, usedValue=${usedValue || 'null'}`);
+        console.log(`[ACTIVITY] Fetching events: source=${source}, user_id=${user_id || 'null'}, identity_key=${identity_key || 'null'}`);
 
         // Build query
         let query = supabase
@@ -276,15 +268,17 @@ router.post("/activity/sync", async (req, res) => {
         }
 
         // 1. Get authenticated User ID
+        // Reuse resolveIdentity logic but specifically look for JWT source
         const ident = resolveIdentity(req);
 
         // We strictly require an authenticated user for sync target
-        if (ident.mode !== 'user') {
+        // Check if resolution found a user_id from JWT
+        if (!ident.user_id || ident.source !== 'authorization-jwt') {
             console.log('[ACTIVITY] Sync failed: No authenticated user found');
             return res.status(401).json({ error: 'Authentication required for sync' });
         }
 
-        const userId = ident.usedValue;
+        const userId = ident.user_id;
 
         // 2. Get Guest Key from header
         const guestKey = req.header('x-guest-key');
@@ -336,17 +330,13 @@ router.post("/activity/debug-seed", async (req, res) => {
             return res.status(403).json({ error: 'Debug seed disabled' });
         }
 
-        const { user_id, identity_key, mode, usedValue } = resolveIdentity(req);
+        const { user_id, identity_key, source } = resolveIdentity(req);
 
-        // Set identity headers
-        res.setHeader('x-identity-used', usedValue || 'none');
-        res.setHeader('x-identity-mode', mode);
-
-        if (!usedValue) {
+        if (!user_id && !identity_key) {
             return res.status(400).json({ error: 'No identity resolved' });
         }
 
-        console.log(`[ACTIVITY-SEED] Seeding for mode=${mode} usedValue=${usedValue}`);
+        console.log(`[ACTIVITY-SEED] Seeding for user=${user_id} key=${identity_key}`);
 
         const events = [
             {
@@ -387,7 +377,7 @@ router.post("/activity/debug-seed", async (req, res) => {
 
         return res.json({
             ok: true,
-            identityKey: usedValue,
+            identityKey: identity_key || user_id,
             insertedCount: data.length,
             totalToday: totalToday || 0
         });
