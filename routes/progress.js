@@ -333,11 +333,28 @@ router.get("/progress", async (req, res) => {
 
         console.log(`[PROGRESS] Fetched ${sessions.length} sessions for ${userKey}`);
 
-        return res.json(shapeProgressResponse({
+        // DEBUG: Add debug info
+        const commit = process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || "local";
+        const debug = {
+            commit,
+            identityKey: user_id ? `user:${user_id}` : `guest:${guest_key || userKey}`,
+            activityEventsCount: activityEvents.length,
+        };
+
+        // Add response header
+        res.setHeader('x-jsp-backend-commit', commit);
+
+        const responseData = shapeProgressResponse({
             sessions,
             total: sessions.length,
-            activityEvents  // NEW: Separate activity events array
-        }));
+            activityEvents
+        });
+
+        // Mix in debug info
+        return res.json({
+            ...responseData,
+            debug
+        });
 
     } catch (error) {
         console.error("Error fetching progress:", error);

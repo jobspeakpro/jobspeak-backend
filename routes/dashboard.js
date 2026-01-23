@@ -85,6 +85,17 @@ router.get("/dashboard/summary", async (req, res) => {
             // Continue without activity data
         }
 
+        // DEBUG: Add debug info
+        const commit = process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || "local";
+        const debug = {
+            commit,
+            identityKey: user_id ? `user:${user_id}` : `guest:${identity_key || userKey}`,
+            recentActivityCount: recentActivity.length,
+        };
+
+        // Add response header
+        res.setHeader('x-jsp-backend-commit', commit);
+
         return res.json({
             total_practice_sessions,
             total_mock_interviews,
@@ -92,7 +103,8 @@ router.get("/dashboard/summary", async (req, res) => {
             // NEW: Activity tracking data
             recentActivity,
             practiceStartsToday,
-            mockInterviewStartsToday
+            mockInterviewStartsToday,
+            debug // NEW: Debug info
         });
     } catch (error) {
         console.error("Error fetching dashboard summary:", error);
