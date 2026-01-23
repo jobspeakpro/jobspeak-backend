@@ -14,7 +14,7 @@ const router = express.Router();
  * 3. body.userKey -> use as identity_key
  * Returns: { user_id, identity_key, source }
  */
-export function resolveIdentity(req) {
+function resolveIdentity(req) {
     let user_id = null;
     let identity_key = null;
     let source = null;
@@ -245,76 +245,5 @@ router.get("/activity/events", async (req, res) => {
         return res.status(500).json({ error: 'Failed to fetch activity events' });
     }
 });
-
-/**
- * POST /api/activity/sync
- * Migrate guest activity to authenticated user
- * 
- * Headers:
- * - Authorization: Bearer <token> (REQUIRED)
- * - x-guest-key: <guest-key> (REQUIRED)
- * 
- * Returns:
- * - 200 with { ok: true, synced: number }
- */
-router.post("/activity/sync", async (req, res) => {
-    try {
-        // Feature flag
-        if (process.env.ACTIVITY_TRACKING_ENABLED === 'false') {
-            return res.json({ ok: true, synced: 0, disabled: true });
-        }
-
-        // 1. Get authenticated User ID
-        // Reuse resolveIdentity logic but specifically look for JWT source
-        const ident = resolveIdentity(req);
-
-        // We strictly require an authenticated user for sync target
-        // Check if resolution found a user_id from JWT
-        if (!ident.user_id || ident.source !== 'authorization-jwt') {
-            console.log('[ACTIVITY] Sync failed: No authenticated user found');
-            return res.status(401).json({ error: 'Authentication required for sync' });
-        }
-
-        const userId = ident.user_id;
-
-        // 2. Get Guest Key from header
-        const guestKey = req.header('x-guest-key');
-        if (!guestKey || typeof guestKey !== 'string' || !guestKey.trim()) {
-            console.log('[ACTIVITY] Sync failed: No x-guest-key header');
-            return res.status(400).json({ error: 'x-guest-key header required' });
-        }
-
-        const identityKey = guestKey.trim();
-
-        console.log(`[ACTIVITY] Syncing guest=${identityKey} to user=${userId}`);
-
-        // 3. Perform Update
-        // Update all events with this identity_key to have this user_id
-        // We only update if user_id is NULL (beltsers/braces, though technically they belong to guest)
-        // Actually, just overwrite ownership to the user
-        const { data, error, count } = await supabase
-            .from('activity_events')
-            .update({ user_id: userId })
-            .eq('identity_key', identityKey)
-            .select();
-
-        if (error) {
-            console.error('[ACTIVITY] Sync update error:', error.message);
-            return res.json({ ok: false, error: error.message });
-        }
-
-        console.log(`[ACTIVITY] Synced ${data?.length || 0} events`);
-
-        return res.json({
-            ok: true,
-            synced: data?.length || 0
-        });
-
-    } catch (error) {
-        console.error('[ACTIVITY] Sync unexpected error:', error);
-        return res.status(500).json({ error: 'Internal sync error' });
-    }
-});
-
 
 export default router;

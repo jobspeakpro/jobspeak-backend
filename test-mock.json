@@ -1,0 +1,8 @@
+{
+    "activityType": "mock_interview",
+    "context": {
+        "tabId": "test-tab-2",
+        "type": "short",
+        "sessionId": "test-session-mock-20260122"
+    }
+}

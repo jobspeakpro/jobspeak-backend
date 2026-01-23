@@ -1,0 +1,68 @@
+﻿{
+    "total_practice_sessions":  0,
+    "total_mock_interviews":  0,
+    "last_mock_interview":  null,
+    "recentActivity":  [
+                           {
+                               "activityType":  "mock_interview",
+                               "startedAt":  "2026-01-23T03:44:22.655163+00:00",
+                               "context":  {
+                                               "type":  "short",
+                                               "tabId":  "test-tab-2",
+                                               "sessionId":  "test-session-mock-20260122"
+                                           }
+                           },
+                           {
+                               "activityType":  "practice",
+                               "startedAt":  "2026-01-23T03:44:22.276461+00:00",
+                               "context":  {
+                                               "tabId":  "test-tab-1",
+                                               "sessionId":  "test-session-practice-20260122"
+                                           }
+                           }
+                       ],
+    "practiceStartsToday":  1,
+    "mockInterviewStartsToday":  1
+}
+{
+    "sessions":  [
+                     {
+                         "date":  "2026-01-23T03:44:22.655163+00:00",
+                         "type":  "Mock Interview Started",
+                         "score":  null,
+                         "topStrength":  "Activity started",
+                         "topWeakness":  "N/A",
+                         "sessionId":  "test-session-mock-20260122",
+                         "activityEvent":  true
+                     },
+                     {
+                         "date":  "2026-01-23T03:44:22.276461+00:00",
+                         "type":  "Practice Started",
+                         "score":  null,
+                         "topStrength":  "Activity started",
+                         "topWeakness":  "N/A",
+                         "sessionId":  "test-session-practice-20260122",
+                         "activityEvent":  true
+                     }
+                 ],
+    "total":  2,
+    "activityEvents":  [
+                           {
+                               "activityType":  "mock_interview",
+                               "startedAt":  "2026-01-23T03:44:22.655163+00:00",
+                               "context":  {
+                                               "type":  "short",
+                                               "tabId":  "test-tab-2",
+                                               "sessionId":  "test-session-mock-20260122"
+                                           }
+                           },
+                           {
+                               "activityType":  "practice",
+                               "startedAt":  "2026-01-23T03:44:22.276461+00:00",
+                               "context":  {
+                                               "tabId":  "test-tab-1",
+                                               "sessionId":  "test-session-practice-20260122"
+                                           }
+                           }
+                       ]
+}

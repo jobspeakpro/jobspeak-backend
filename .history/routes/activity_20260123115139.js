@@ -316,5 +316,5 @@ router.post("/activity/sync", async (req, res) => {
     }
 });
 
-
+export { resolveIdentity }; // Export for other routes
 export default router;

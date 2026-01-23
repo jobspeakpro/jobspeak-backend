@@ -239,85 +239,51 @@ router.get("/progress", async (req, res) => {
         // Build progress list
         const sessions = [];
 
-        // NEW: Separate array for activity events
+        // NEW: Separate array for activity events (last 50)
         let activityEvents = [];
-        let debugInfo = {
-            userId: null,
-            guestKeyFromHeader: null,
-            activityCountUserId: 0,
-            activityCountGuestKey: 0,
-            activityCountCombined: 0
-        };
 
         // Add activity events if available (practice/mock starts)
         // Check if activity tracking is enabled
         if (process.env.ACTIVITY_TRACKING_ENABLED !== 'false') {
             try {
-                // Determine identity (Dual Query Logic)
-                const isGuestKey = userKey.startsWith('guest-');
-                const primaryUserId = isGuestKey ? null : userKey;
-                const primaryGuestKey = isGuestKey ? userKey : null;
-
-                // Check header for guest key (even if authenticated)
-                const headerGuestKey = req.header('x-guest-key');
-
-                // Final resolved IDs
-                const userId = primaryUserId;
-                const guestKey = headerGuestKey || primaryGuestKey;
-
-                debugInfo.userId = userId;
-                debugInfo.guestKeyFromHeader = headerGuestKey || null;
-
                 let activityQuery = supabase
                     .from('activity_events')
                     .select('*')
                     .order('created_at', { ascending: false })
                     .limit(50);
 
-                if (userId && guestKey) {
-                    // Dual Query: user_id OR identity_key
-                    activityQuery = activityQuery.or(`user_id.eq.${userId},identity_key.eq.${guestKey}`);
-                } else if (userId) {
-                    activityQuery = activityQuery.eq('user_id', userId);
-                } else if (guestKey) {
-                    activityQuery = activityQuery.eq('identity_key', guestKey);
+                if (user_id) {
+                    activityQuery = activityQuery.eq('user_id', user_id);
                 } else {
-                    activityQuery = null;
+                    activityQuery = activityQuery.eq('identity_key', guest_key);
                 }
 
-                if (activityQuery) {
-                    const { data: activityEventsData, error: activityError } = await activityQuery;
+                const { data: activityEventsData, error: activityError } = await activityQuery;
 
-                    if (!activityError && activityEventsData) {
-                        // NEW: Populate activityEvents array in requested format
-                        activityEvents = activityEventsData.map(event => ({
-                            activityType: event.activity_type,
-                            startedAt: event.created_at,
-                            context: event.context || {}
-                        }));
+                if (!activityError && activityEventsData) {
+                    // NEW: Populate activityEvents array in requested format
+                    activityEvents = activityEventsData.map(event => ({
+                        activityType: event.activity_type,
+                        startedAt: event.created_at,
+                        context: event.context || {}
+                    }));
 
-                        // Also add to sessions array for backward compatibility
-                        activityEventsData.forEach(event => {
-                            // Debug counts
-                            if (event.user_id === userId) debugInfo.activityCountUserId++;
-                            if (event.identity_key === guestKey) debugInfo.activityCountGuestKey++;
+                    // Also add to sessions array for backward compatibility
+                    activityEventsData.forEach(event => {
+                        const activityLabel = event.activity_type === 'practice'
+                            ? 'Practice Started'
+                            : 'Mock Interview Started';
 
-                            const activityLabel = event.activity_type === 'practice'
-                                ? 'Practice Started'
-                                : 'Mock Interview Started';
-
-                            sessions.push({
-                                date: event.created_at,
-                                type: activityLabel,
-                                score: null,
-                                topStrength: 'Activity started',
-                                topWeakness: 'N/A',
-                                sessionId: event.context?.sessionId || null,
-                                activityEvent: true
-                            });
+                        sessions.push({
+                            date: event.created_at,
+                            type: activityLabel,
+                            score: null,
+                            topStrength: 'Activity started',
+                            topWeakness: 'N/A',
+                            sessionId: event.context?.sessionId || null,
+                            activityEvent: true
                         });
-                        debugInfo.activityCountCombined = activityEventsData.length;
-                    }
+                    });
                 }
             } catch (activityErr) {
                 console.warn('[PROGRESS] Activity events fetch failed (non-fatal):', activityErr.message);
@@ -367,28 +333,11 @@ router.get("/progress", async (req, res) => {
 
         console.log(`[PROGRESS] Fetched ${sessions.length} sessions for ${userKey}`);
 
-        // DEBUG: Add debug info
-        const commit = process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || "local";
-        const debug = {
-            commit,
-            identityKey: userKey, // Legacy
-            ...debugInfo
-        };
-
-        // Add response header
-        res.setHeader('x-jsp-backend-commit', commit);
-
-        const responseData = shapeProgressResponse({
+        return res.json(shapeProgressResponse({
             sessions,
             total: sessions.length,
-            activityEvents
-        });
-
-        // Mix in debug info
-        return res.json({
-            ...responseData,
-            debug
-        });
+            activityEvents  // NEW: Separate activity events array
+        }));
 
     } catch (error) {
         console.error("Error fetching progress:", error);

@@ -1,0 +1,61 @@
+﻿
+=== TESTING DASHBOARD + 
+PROGRESS ACTIVITY DATA ===
+Railway URL: https://jobspeak
+-backend-production.up.railwa
+y.app
+Guest Key: guest-proof-123
+
+[1/3] Health Check...
+Backend Version: cd9fa10
+Commit: cd9fa10e3e37b31affb7d
+00df7c56716368287e7
+
+[2/3] Testing 
+/api/dashboard/summary...
+Dashboard Response:
+{
+    "total_practice_sessions":  0,
+    "total_mock_interviews":  0,
+    "last_mock_interview":  null
+}
+
+WARNING: recentActivity 
+field missing
+WARNING: practiceStartsToday 
+field missing
+WARNING: 
+mockInterviewStartsToday 
+field missing
+
+[3/3] Testing 
+/api/progress...
+Progress Response:
+{
+    "sessions":  [
+
+                 ],
+    "total":  0
+}
+
+WARNING: activityEvents 
+field missing
+ERROR: sessions field 
+missing (backward 
+compatibility broken!)
+
+=== VERIFICATION SUMMARY ===
+
+Dashboard Endpoint:
+  - recentActivity: 0 events
+  - practiceStartsToday: 
+  - 
+mockInterviewStartsToday: 
+
+Progress Endpoint:
+  - sessions: 0
+  - activityEvents: 0
+
+PARTIAL: Some fields may be 
+missing
+

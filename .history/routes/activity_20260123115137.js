@@ -14,7 +14,7 @@ const router = express.Router();
  * 3. body.userKey -> use as identity_key
  * Returns: { user_id, identity_key, source }
  */
-export function resolveIdentity(req) {
+function resolveIdentity(req) {
     let user_id = null;
     let identity_key = null;
     let source = null;
@@ -316,5 +316,5 @@ router.post("/activity/sync", async (req, res) => {
     }
 });
 
-
+export { resolveIdentity }; // Export for other routes
 export default router;
