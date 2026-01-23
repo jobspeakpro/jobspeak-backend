@@ -1,6 +1,7 @@
 // jobspeak-backend/routes/dashboard.js
 import express from "express";
 import { getSessions, getMockInterviewCount, getLastMockInterview } from "../services/db.js";
+import { supabase } from "../services/supabase.js";
 
 const router = express.Router();
 
@@ -33,10 +34,65 @@ router.get("/dashboard/summary", async (req, res) => {
             };
         }
 
+        // NEW: Fetch recent activity events (last 10)
+        let recentActivity = [];
+        let practiceStartsToday = 0;
+        let mockInterviewStartsToday = 0;
+
+        try {
+            // Determine if authenticated user or guest
+            const isGuest = userKey.startsWith('guest-');
+            const user_id = isGuest ? null : userKey;
+            const identity_key = isGuest ? userKey : null;
+
+            // Fetch last 10 activity events
+            let activityQuery = supabase
+                .from('activity_events')
+                .select('*')
+                .order('created_at', { ascending: false })
+                .limit(10);
+
+            if (user_id) {
+                activityQuery = activityQuery.eq('user_id', user_id);
+            } else {
+                activityQuery = activityQuery.eq('identity_key', identity_key);
+            }
+
+            const { data: activityEvents, error: activityError } = await activityQuery;
+
+            if (!activityError && activityEvents) {
+                // Map to recentActivity format
+                recentActivity = activityEvents.map(event => ({
+                    activityType: event.activity_type,
+                    startedAt: event.created_at,
+                    context: event.context || {}
+                }));
+
+                // Count today's starts
+                const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+                activityEvents.forEach(event => {
+                    if (event.day === today) {
+                        if (event.activity_type === 'practice') {
+                            practiceStartsToday++;
+                        } else if (event.activity_type === 'mock_interview') {
+                            mockInterviewStartsToday++;
+                        }
+                    }
+                });
+            }
+        } catch (activityErr) {
+            console.warn('[DASHBOARD] Activity events fetch failed (non-fatal):', activityErr.message);
+            // Continue without activity data
+        }
+
         return res.json({
             total_practice_sessions,
             total_mock_interviews,
             last_mock_interview,
+            // NEW: Activity tracking data
+            recentActivity,
+            practiceStartsToday,
+            mockInterviewStartsToday
         });
     } catch (error) {
         console.error("Error fetching dashboard summary:", error);

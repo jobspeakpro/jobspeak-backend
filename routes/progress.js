@@ -34,7 +34,8 @@ function shapeProgressSummaryResponse(data = {}) {
 function shapeProgressResponse(data = {}) {
     return {
         sessions: data.sessions ?? [],
-        total: data.total ?? 0
+        total: data.total ?? 0,
+        activityEvents: data.activityEvents ?? []
     };
 }
 
@@ -238,6 +239,57 @@ router.get("/progress", async (req, res) => {
         // Build progress list
         const sessions = [];
 
+        // NEW: Separate array for activity events (last 50)
+        let activityEvents = [];
+
+        // Add activity events if available (practice/mock starts)
+        // Check if activity tracking is enabled
+        if (process.env.ACTIVITY_TRACKING_ENABLED !== 'false') {
+            try {
+                let activityQuery = supabase
+                    .from('activity_events')
+                    .select('*')
+                    .order('created_at', { ascending: false })
+                    .limit(50);
+
+                if (user_id) {
+                    activityQuery = activityQuery.eq('user_id', user_id);
+                } else {
+                    activityQuery = activityQuery.eq('identity_key', guest_key);
+                }
+
+                const { data: activityEventsData, error: activityError } = await activityQuery;
+
+                if (!activityError && activityEventsData) {
+                    // NEW: Populate activityEvents array in requested format
+                    activityEvents = activityEventsData.map(event => ({
+                        activityType: event.activity_type,
+                        startedAt: event.created_at,
+                        context: event.context || {}
+                    }));
+
+                    // Also add to sessions array for backward compatibility
+                    activityEventsData.forEach(event => {
+                        const activityLabel = event.activity_type === 'practice'
+                            ? 'Practice Started'
+                            : 'Mock Interview Started';
+
+                        sessions.push({
+                            date: event.created_at,
+                            type: activityLabel,
+                            score: null,
+                            topStrength: 'Activity started',
+                            topWeakness: 'N/A',
+                            sessionId: event.context?.sessionId || null,
+                            activityEvent: true
+                        });
+                    });
+                }
+            } catch (activityErr) {
+                console.warn('[PROGRESS] Activity events fetch failed (non-fatal):', activityErr.message);
+            }
+        }
+
         // Add mock sessions
         (mockSessions || []).forEach(session => {
             const summary = session.summary || {};
@@ -283,7 +335,8 @@ router.get("/progress", async (req, res) => {
 
         return res.json(shapeProgressResponse({
             sessions,
-            total: sessions.length
+            total: sessions.length,
+            activityEvents  // NEW: Separate activity events array
         }));
 
     } catch (error) {
