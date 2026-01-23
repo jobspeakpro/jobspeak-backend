@@ -11,6 +11,7 @@ import { fileURLToPath } from "url";
 import { execSync } from "child_process";
 
 import accountRoutes from "./routes/account.js";
+import activityRoutes from "./routes/activity.js";
 import aiRoutes from "./routes/ai.js";
 import authRoutes from "./routes/auth.js";
 import billingRoutes from "./routes/billing.js";
@@ -316,6 +317,7 @@ app.get("/api/tts/health", (req, res) => {
 // POST /api/track - Analytics event tracking
 import analyticsRoutes from "./routes/analytics.js";
 app.use("/api", accountRoutes);   // /api/account (DELETE), /api/account/restore (POST)
+app.use("/api", activityRoutes);  // /api/activity/start, /api/activity/events
 app.use("/api", analyticsRoutes); // /api/track
 app.use("/api", billingRoutes);  // /api/billing/*
 app.use("/api", dashboardRoutes); // /api/dashboard/*
