@@ -168,7 +168,6 @@ router.get("/progress/summary", async (req, res) => {
 router.get("/progress", async (req, res) => {
     try {
         const { userKey } = req.query;
-        const headerGuestKey = req.header('x-guest-key');
 
         // Support both authenticated and guest users
         // If no userKey, return empty sessions (don't break dashboard)

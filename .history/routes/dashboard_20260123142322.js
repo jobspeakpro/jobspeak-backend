@@ -142,7 +142,7 @@ router.get("/dashboard/summary", async (req, res) => {
                 commit,
                 identityKeyResolved: userKey,
                 guestKeyFromHeader: headerGuestKey || null,
-                userId: debugInfo.userId,
+                userId: userId,
                 activityCountCombined: debugInfo.activityCountCombined ?? 0,
                 // keep legacy for safety
                 ...debug
