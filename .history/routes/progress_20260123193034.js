@@ -291,8 +291,8 @@ router.get("/progress", async (req, res) => {
                         // Also add to sessions array for backward compatibility
                         activityEventsData.forEach(event => {
                             // Debug counts
-                            if (event.user_id === user_id_val) debugInfo.activityCountUserId++;
-                            if (event.identity_key === guest_key_val) debugInfo.activityCountGuestKey++;
+                            if (event.user_id === userId) debugInfo.activityCountUserId++;
+                            if (event.identity_key === guestKey) debugInfo.activityCountGuestKey++;
 
                             const activityLabel = event.activity_type === 'practice'
                                 ? 'Practice Started'
