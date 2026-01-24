@@ -74,22 +74,6 @@ async function run() {
         output += `**Response (Debug)**:\n\`\`\`json\n${JSON.stringify(json.debug || json, null, 2)}\n\`\`\`\n\n`;
     }
 
-    // 3. GET /api/progress/summary (No Header)
-    {
-        const path = `/api/progress/summary?userKey=${guestKey}`;
-        output += `## 3. GET ${path}\n`;
-        output += `**Request Headers**: (No x-guest-key)\n`;
-
-        const res = await request(path);
-        const json = JSON.parse(res.body);
-
-        output += `**Status**: ${res.status}\n`;
-        output += `**x-identity-used**: \`${formatHeader(res.headers, 'x-identity-used')}\`\n`;
-        output += `**Total Practice Sessions**: ${json.total_practice_sessions}\n`;
-        output += `**Days Practiced**: ${json.days_practiced}\n`;
-        output += `**Response (Snippet)**:\n\`\`\`json\n${JSON.stringify(json, null, 2)}\n\`\`\`\n\n`;
-    }
-
     console.log(output);
 }
 
