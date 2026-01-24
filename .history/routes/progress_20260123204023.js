@@ -127,24 +127,24 @@ router.get("/progress/summary", async (req, res) => {
             }
         }
 
-        // 4. Recent practice (last 3 sessions from activity_events)
-        const { data: recentEvents } = await supabase
-            .from('activity_events')
-            .select('*')
-            .eq('activity_type', 'practice')
-            .or(`user_id.eq.${usedValue},identity_key.eq.${usedValue}`)
-            .order('created_at', { ascending: false })
-            .limit(3);
+        // 4. Recent practice (last 3 sessions)
+        const recent_practice = sessions.slice(0, 3).map(session => {
+            let aiResponse = {};
+            try {
+                aiResponse = JSON.parse(session.aiResponse);
+            } catch (e) {
+                // Ignore parse errors
+            }
 
-        const recent_practice = (recentEvents || []).map(event => {
-            // Rough duration estimation or default
-            const estimatedMinutes = 5; // Default for now since we don't store duration in start event
+            // Estimate duration based on transcript length (rough heuristic: 150 words/min speaking)
+            const wordCount = session.transcript.split(/\s+/).length;
+            const estimatedMinutes = Math.max(1, Math.round(wordCount / 150));
 
             return {
                 title: `Practice Session`,
-                date: event.created_at,
+                date: session.createdAt,
                 duration: estimatedMinutes,
-                score: null // Score might not be available in start event
+                score: aiResponse.analysis?.score || session.score || null
             };
         });
 
