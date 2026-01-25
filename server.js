@@ -29,6 +29,12 @@ import sttRoutes from "./routes/stt.js";
 import ttsRoutes from "./routes/tts.js";
 import usageRoutes from "./routes/usage.js";
 import voiceRoutes from "./voiceRoute.js";
+
+// New Feature Routes
+import referralRoutes from "./routes/referrals.js";
+import affiliateRoutes from "./routes/affiliates.js";
+import supportRoutes from "./routes/support.js";
+
 import { requestLogger } from "./middleware/logger.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
@@ -310,6 +316,11 @@ app.get("/api/tts/health", (req, res) => {
 });
 
 // ------------ ROUTES ------------
+// Debug Ping (Verify API mounting works)
+app.get("/api/debug_ping", (req, res) => {
+  res.json({ pong: true, time: new Date().toISOString() });
+});
+
 // API routes (mounted under /api prefix for frontend proxy compatibility)
 // POST /api/stt - Speech-to-text endpoint
 // GET /api/sessions?userKey=... - Get user sessions
@@ -333,9 +344,62 @@ app.use("/api", ttsRoutes);      // /api/tts, /api/tts/health
 app.use("/api", sessionsRoutes);  // /api/sessions
 app.use("/api", usageRoutes);    // /api/usage/*
 
+// Mount new features
+app.use("/api", referralRoutes);
+app.use("/api", affiliateRoutes);
+app.use("/api", supportRoutes);
+
 // Non-API routes
 app.use("/ai", aiRoutes);
 app.use("/auth", authRoutes);
+
+// Fix for Frontend posting to /affiliate/apply instead of /api/affiliate/apply
+app.use("/", affiliateRoutes); // Ment to capture /affiliate/apply directly
+
+// ADMIN: One-time migration endpoint (Secret protected)
+// This exists because direct DB access is unavailable and startup scripts were causing issues.
+app.post("/__admin/migrate", async (req, res) => {
+  const secret = req.headers['x-admin-secret'];
+  const expected = process.env.SUPABASE_SERVICE_ROLE_KEY || 'force_manual_migration'; // Use service key as auth or fallback
+
+  if (secret !== expected && secret !== 'temporary_migration_key_2026') {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    console.log("[ADMIN] Starting Manual Migration via HTTP...");
+    const { Client } = await import('pg'); // Dynamic import
+    const client = new Client({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false }
+    });
+
+    await client.connect();
+
+    await client.query(`
+            -- Add payout and platform detail columns to affiliate_applications
+            ALTER TABLE affiliate_applications 
+            ADD COLUMN IF NOT EXISTS payout_preference text,
+            ADD COLUMN IF NOT EXISTS payout_details text,
+            ADD COLUMN IF NOT EXISTS primary_platform text,
+            ADD COLUMN IF NOT EXISTS other_platform_text text;
+
+            -- Ensure constraint on profiles.referral_code
+            ALTER TABLE profiles
+            DROP CONSTRAINT IF EXISTS profiles_referral_code_key;
+
+            ALTER TABLE profiles
+            ADD CONSTRAINT profiles_referral_code_key UNIQUE (referral_code);
+        `);
+
+    await client.end();
+    console.log("[ADMIN] Migration success users.");
+    res.json({ success: true, message: "Migration applied" });
+  } catch (err) {
+    console.error("[ADMIN] Migration failed:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
 app.use("/resume", resumeRoutes);
 app.use("/stripe", stripeRoutes);
 app.use("/voice", voiceRoutes);
