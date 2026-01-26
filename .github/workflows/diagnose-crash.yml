@@ -1,0 +1,40 @@
+name: Debug Production Crash
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  debug-startup:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js 20
+      uses: actions/setup-node@v3
+      with:
+        node-version: '20'
+        
+    - name: Install Dependencies
+      run: npm ci
+      
+    - name: Debug Environment
+      run: |
+        node --version
+        npm --version
+        ls -la
+        
+    - name: Try Starting Server (Dry Run)
+      timeout-minutes: 1
+      run: |
+        echo "Starting server..."
+        # Set dummy env vars that usually exist
+        export PORT=3000
+        export NODE_ENV=production
+        
+        # We expect this to either CRASH immediately or hang (listen)
+        # We use 'timeout' to kill it after 10 seconds if it works
+        timeout 10s node server.js && echo "Server started successfully (killed by timeout)" || echo "Server process exited code=$?"
+      continue-on-error: true
