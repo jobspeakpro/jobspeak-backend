@@ -20,21 +20,36 @@ jobs:
     - name: Install Dependencies
       run: npm ci
       
-    - name: Debug Environment
+    - name: Install Railway CLI
+      run: npm install -g @railway/cli
+
+    - name: Fetch Railway Logs
+      env:
+        RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
       run: |
-        node --version
-        npm --version
-        ls -la
+        echo "Fetching Railway logs..."
+        # Try to decouple service name if possible or let token handle context
+        # Pipe to head to prevent streaming hang
+        railway logs --service jobspeak-backend-production 2>&1 | head -n 300 > railway-logs.txt || echo "Failed to fetch logs"
         
-    - name: Try Starting Server (Dry Run)
-      timeout-minutes: 1
+        echo "=== LOG PREVIEW ==="
+        cat railway-logs.txt
+        
+    - name: Upload Logs Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: railway-logs
+        path: railway-logs.txt
+
+    - name: Health Check
       run: |
-        echo "Starting server..."
-        # Set dummy env vars that usually exist
-        export PORT=3000
-        export NODE_ENV=production
+        echo "Checking production health..."
+        status_code=$(curl --write-out "%{http_code}" --silent --output /dev/null https://jobspeak-backend-production.up.railway.app/health)
         
-        # We expect this to either CRASH immediately or hang (listen)
-        # We use 'timeout' to kill it after 10 seconds if it works
-        timeout 10s node server.js && echo "Server started successfully (killed by timeout)" || echo "Server process exited code=$?"
-      continue-on-error: true
+        if [ "$status_code" -ne 200 ]; then
+          echo "Health check FAILED with status $status_code"
+          echo "Backend is DOWN."
+          exit 1
+        else
+          echo "Health check PASSED (200 OK)"
+        fi
