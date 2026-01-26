@@ -4,16 +4,21 @@ import OpenAI from "openai";
 
 dotenv.config();
 
-if (!process.env.OPENAI_API_KEY) {
-  console.warn(
-    "⚠️ OPENAI_API_KEY is not set in .env. OpenAI calls will fall back to simple rewriting."
-  );
-}
+let client;
 
-// Create OpenAI client with API key from .env
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+try {
+  if (process.env.OPENAI_API_KEY) {
+    client = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+  } else {
+    console.warn(
+      "⚠️ OPENAI_API_KEY is not set. OpenAI calls will fall back to simple rewriting."
+    );
+  }
+} catch (err) {
+  console.error("Failed to initialize OpenAI client:", err.message);
+}
 
 /**
  * askGPT
@@ -35,9 +40,9 @@ export async function askGPT({
     throw new Error("Missing prompt for askGPT");
   }
 
-  if (!process.env.OPENAI_API_KEY) {
-    // Fallback: just return the prompt if no key (we won't actually use this in ai.js)
-    console.warn("askGPT called without OPENAI_API_KEY. Returning prompt as-is.");
+  // Safety check: if client failed to init or key missing
+  if (!client) {
+    console.warn("askGPT called without active OpenAI client. Returning prompt as-is.");
     return prompt;
   }
 
@@ -56,6 +61,8 @@ export async function askGPT({
     return message.trim();
   } catch (err) {
     console.error("askGPT error:", err);
+    // If it's an API error (401/429), maybe we should just return prompt too?
+    // For now, rethrow to let caller handle (or fall back)
     throw err;
   }
 }
