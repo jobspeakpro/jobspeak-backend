@@ -33,9 +33,33 @@ jobs:
         # Pipe to head to prevent streaming hang
         railway logs --service jobspeak-backend-production 2>&1 | head -n 300 > railway-logs.txt || echo "Failed to fetch logs"
         
-        echo "=== LOG PREVIEW ==="
-        cat railway-logs.txt
-        
+    - name: Analyze Logs
+      id: analysis
+      continue-on-error: true
+      run: |
+        echo "=== LOG ANALYSIS ==="
+        if grep -q "Cannot find module" railway-logs.txt; then
+          echo "::error::FAILURE: Missing Dependency (Cannot find module)"
+          echo "DETECTED_FAILURE=Missing Dependency" >> $GITHUB_ENV
+        elif grep -q "EADDRINUSE" railway-logs.txt; then
+          echo "::error::FAILURE: Port Binding Issue (EADDRINUSE)"
+          echo "DETECTED_FAILURE=Port Binding Issue" >> $GITHUB_ENV
+        elif grep -q "npm ERR!" railway-logs.txt; then
+          echo "::error::FAILURE: Build Failed (npm error)"
+          echo "DETECTED_FAILURE=Build Failed" >> $GITHUB_ENV
+        elif grep -q "Error: P1001" railway-logs.txt; then
+          echo "::error::FAILURE: Database Connection Failed"
+          echo "DETECTED_FAILURE=Database Connection Failed" >> $GITHUB_ENV
+        elif grep -q "ReferenceError" railway-logs.txt; then
+          echo "::error::FAILURE: Runtime Code Error"
+          echo "DETECTED_FAILURE=Runtime Code Error" >> $GITHUB_ENV
+        elif grep -q "SyntaxError" railway-logs.txt; then
+          echo "::error::FAILURE: Syntax Error"
+          echo "DETECTED_FAILURE=Syntax Error" >> $GITHUB_ENV
+        else
+          echo "No known patterns matched."
+        fi
+
     - name: Upload Logs Artifact
       uses: actions/upload-artifact@v4
       if: always()
@@ -51,6 +75,9 @@ jobs:
         if [ "$status_code" -ne 200 ]; then
           echo "Health check FAILED with status $status_code"
           echo "Backend is DOWN."
+          if [ ! -z "$DETECTED_FAILURE" ]; then
+             echo "FINAL DIAGNOSIS: $DETECTED_FAILURE"
+          fi
           exit 1
         else
           echo "Health check PASSED (200 OK)"
