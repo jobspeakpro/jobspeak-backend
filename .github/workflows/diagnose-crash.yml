@@ -24,6 +24,7 @@ jobs:
       run: npm install -g @railway/cli
 
     - name: Fetch Railway Logs
+      continue-on-error: true
       env:
         RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
       run: |
@@ -37,6 +38,7 @@ jobs:
         
     - name: Upload Logs Artifact
       uses: actions/upload-artifact@v4
+      if: always()
       with:
         name: railway-logs
         path: railway-logs.txt
@@ -49,17 +51,7 @@ jobs:
         if [ "$status_code" -ne 200 ]; then
           echo "Health check FAILED with status $status_code"
           echo "Backend is DOWN."
-          # Do not exit yet, we want to commit the logs first
+          exit 1
         else
           echo "Health check PASSED (200 OK)"
         fi
-
-    - name: Commit Logs to Repo
-      if: always()
-      run: |
-        git config --global user.name "GitHub Actions"
-        git config --global user.email "actions@github.com"
-        git pull
-        git add railway-logs.txt
-        git commit -m "chore: upload railway crash logs [skip ci]" || echo "No changes to commit"
-        git push
