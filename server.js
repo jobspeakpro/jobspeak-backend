@@ -38,6 +38,22 @@ import supportRoutes from "./routes/support.js";
 import { requestLogger } from "./middleware/logger.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
+// server.js startup
+// Ensure we handle startup errors gracefully
+const PORT = process.env.PORT || 3000;
+
+// Wrap Stripe init
+let stripe;
+try {
+  if (process.env.STRIPE_SECRET_KEY) {
+    stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+  } else {
+    console.warn("[STARTUP] STRIPE_SECRET_KEY missing - Billing will fail");
+  }
+} catch (e) {
+  console.error("[STARTUP] Stripe init failed:", e);
+}
+
 // Initialize Sentry (safe - only if DSN is provided)
 let sentryInitialized = false;
 try {
