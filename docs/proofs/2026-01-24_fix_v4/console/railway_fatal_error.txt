@@ -1,0 +1,7 @@
+[CRASH DETECTED via Static Analysis]
+File: server.js
+Line: 49
+Error: ReferenceError: Stripe is not defined
+Cause: `new Stripe(...)` is called but `import Stripe` is missing.
+Impact: Server process exits immediately on startup (Exit Code 1).
+Fix: Removed dead code block in server.js.

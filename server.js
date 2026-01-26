@@ -43,16 +43,8 @@ import { errorHandler } from "./middleware/errorHandler.js";
 const PORT = process.env.PORT || 3000;
 
 // Wrap Stripe init
-let stripe;
-try {
-  if (process.env.STRIPE_SECRET_KEY) {
-    stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-  } else {
-    console.warn("[STARTUP] STRIPE_SECRET_KEY missing - Billing will fail");
-  }
-} catch (e) {
-  console.error("[STARTUP] Stripe init failed:", e);
-}
+// Stripe initialization removed to prevent ReferenceError (Stripe not imported)
+// Billing routes handle their own Stripe instances safely.
 
 // Initialize Sentry (safe - only if DSN is provided)
 let sentryInitialized = false;
