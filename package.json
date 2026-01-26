@@ -4,7 +4,7 @@
   "type": "module",
   "main": "server.js",
   "engines": {
-    "node": "20.x"
+    "node": "18.x"
   },
   "scripts": {
     "start": "node server.js",
@@ -29,6 +29,7 @@
     "stripe": "^12.18.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0"
+    "nodemon": "^3.1.0",
+    "playwright": "^1.58.0"
   }
 }
