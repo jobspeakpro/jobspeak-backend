@@ -1,6 +1,6 @@
 // jobspeak-backend/routes/billing.js
 import express from "express";
-import Stripe from "stripe";
+// import Stripe from "stripe"; // Dynamic import
 import dotenv from "dotenv";
 import { resolveUserKey } from "../middleware/resolveUserKey.js";
 import { getSubscription, upsertSubscription, updateSubscriptionStatus, getSubscriptionByStripeId, isWebhookEventProcessed, recordWebhookEvent, getTodaySessionCount } from "../services/db.js";
@@ -17,7 +17,20 @@ if (!process.env.STRIPE_SECRET_KEY) {
   console.error("❌ STRIPE_SECRET_KEY is required in environment variables");
 }
 
-const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
+let stripeInstance;
+async function getStripe() {
+  if (stripeInstance) return stripeInstance;
+  if (!process.env.STRIPE_SECRET_KEY) return null;
+  try {
+    const { default: Stripe } = await import("stripe");
+    stripeInstance = new Stripe(process.env.STRIPE_SECRET_KEY);
+  } catch (e) {
+    console.error("Failed to load Stripe:", e);
+  }
+  return stripeInstance;
+}
+
+// const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
 // Stripe / billing environment diagnostics (logged once on startup)
 console.log("🔧 Stripe/Billing environment check:");
@@ -37,6 +50,7 @@ const FREE_DAILY_LIMIT = 3;
 // POST /api/billing/create-checkout-session
 router.post("/billing/create-checkout-session", async (req, res) => {
   try {
+    const stripe = await getStripe();
     // Resolve userKey from multiple sources (header, body, query, form-data) - optional
     const userKey = resolveUserKey(req);
 
@@ -235,6 +249,7 @@ router.post("/billing/create-checkout-session", async (req, res) => {
 // POST /api/billing/customer-portal
 router.post("/billing/customer-portal", async (req, res) => {
   try {
+    const stripe = await getStripe();
     const userKey = resolveUserKey(req);
 
     if (!userKey) {
@@ -291,6 +306,7 @@ router.post("/billing/customer-portal", async (req, res) => {
 // GET /api/billing/status?userKey=
 router.get("/billing/status", async (req, res) => {
   try {
+    const stripe = await getStripe();
     // Resolve userKey from multiple sources (header, body, query, form-data)
     const userKey = resolveUserKey(req);
 
@@ -457,357 +473,168 @@ router.get("/billing/status", async (req, res) => {
 
 // POST /api/billing/webhook (signature verified)
 router.post("/billing/webhook", async (req, res) => {
-  const timestamp = new Date().toISOString();
-  const sig = req.headers["stripe-signature"];
-
-  // Log webhook receipt
-  console.log(`[WEBHOOK RECEIPT] ${timestamp} - Received webhook request`);
-  console.log(`[WEBHOOK RECEIPT] Signature present: ${!!sig}`);
-
-  // Validate webhook secret env var - no fallback
-  if (!process.env.STRIPE_WEBHOOK_SECRET) {
-    console.error(`[WEBHOOK ERROR] ${timestamp} - Missing STRIPE_WEBHOOK_SECRET`);
-    return res.status(400).send("Webhook secret not configured");
-  }
-
-  if (!stripe) {
-    console.error(`[WEBHOOK ERROR] ${timestamp} - Stripe not initialized`);
-    return res.status(500).send("Stripe not initialized");
-  }
-
-  let event;
-
-  // Verify webhook signature
   try {
-    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-    console.log(`[WEBHOOK VERIFIED] ${timestamp} - Event ID: ${event.id}, Type: ${event.type}`);
-  } catch (err) {
-    console.error(`[WEBHOOK ERROR] ${timestamp} - Signature verification failed:`, {
-      error: err.message,
-      signaturePresent: !!sig,
-      bodyLength: req.body?.length || 0
-    });
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
+    const stripe = await getStripe();
+    const sig = req.headers["stripe-signature"];
 
-  try {
-    // Check for duplicate event (idempotency) - prevent race conditions
-    if (isWebhookEventProcessed(event.id)) {
-      console.log(`[WEBHOOK IDEMPOTENT] ${timestamp} - Event ${event.id} already processed, skipping`);
-      return res.json({ received: true, idempotent: true });
+    // Log webhook receipt
+    console.log(`[WEBHOOK RECEIPT] ${timestamp} - Received webhook request`);
+    console.log(`[WEBHOOK RECEIPT] Signature present: ${!!sig}`);
+
+    // Validate webhook secret env var - no fallback
+    if (!process.env.STRIPE_WEBHOOK_SECRET) {
+      console.error(`[WEBHOOK ERROR] ${timestamp} - Missing STRIPE_WEBHOOK_SECRET`);
+      return res.status(400).send("Webhook secret not configured");
     }
 
-    // Record event immediately to prevent race conditions (idempotent via INSERT OR IGNORE)
-    // This ensures that even if processing fails, we won't reprocess the same event
-    recordWebhookEvent(event.id, event.type, null, null);
+    if (!stripe) {
+      console.error(`[WEBHOOK ERROR] ${timestamp} - Stripe not initialized`);
+      return res.status(500).send("Stripe not initialized");
+    }
 
-    // Handle checkout.session.completed - subscription activated
-    if (event.type === "checkout.session.completed") {
-      const session = event.data.object;
-      // Prefer client_reference_id if set, otherwise fallback to metadata
-      const userKey = session.client_reference_id || session.metadata?.userKey;
+    let event;
 
-      console.log(`[WEBHOOK PROCESSING] ${timestamp} - checkout.session.completed`, {
-        eventId: event.id,
-        sessionId: session.id,
-        userKey: userKey || "missing",
-        subscriptionId: session.subscription || "missing"
+    // Verify webhook signature
+    try {
+      event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+      console.log(`[WEBHOOK VERIFIED] ${timestamp} - Event ID: ${event.id}, Type: ${event.type}`);
+    } catch (err) {
+      console.error(`[WEBHOOK ERROR] ${timestamp} - Signature verification failed:`, {
+        error: err.message,
+        signaturePresent: !!sig,
+        bodyLength: req.body?.length || 0
       });
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
 
-      if (!userKey) {
-        console.error(`[WEBHOOK ERROR] ${timestamp} - Missing userKey in session metadata`, {
-          eventId: event.id,
-          sessionId: session.id
-        });
-        // Update event record with available data
-        recordWebhookEvent(event.id, event.type, session.subscription || null, null);
-        return res.json({ received: true, error: "Missing userKey" });
+    try {
+      // Check for duplicate event (idempotency) - prevent race conditions
+      if (isWebhookEventProcessed(event.id)) {
+        console.log(`[WEBHOOK IDEMPOTENT] ${timestamp} - Event ${event.id} already processed, skipping`);
+        return res.json({ received: true, idempotent: true });
       }
 
-      if (!session.subscription) {
-        console.error(`[WEBHOOK ERROR] ${timestamp} - Missing subscription in session`, {
+      // Record event immediately to prevent race conditions (idempotent via INSERT OR IGNORE)
+      // This ensures that even if processing fails, we won't reprocess the same event
+      recordWebhookEvent(event.id, event.type, null, null);
+
+      // Handle checkout.session.completed - subscription activated
+      if (event.type === "checkout.session.completed") {
+        const session = event.data.object;
+        // Prefer client_reference_id if set, otherwise fallback to metadata
+        const userKey = session.client_reference_id || session.metadata?.userKey;
+
+        console.log(`[WEBHOOK PROCESSING] ${timestamp} - checkout.session.completed`, {
           eventId: event.id,
           sessionId: session.id,
-          userKey
+          userKey: userKey || "missing",
+          subscriptionId: session.subscription || "missing"
         });
-        // Update event record with userKey
-        recordWebhookEvent(event.id, event.type, null, userKey.trim());
-        return res.json({ received: true, error: "Missing subscription" });
-      }
 
-      // Always retrieve fresh subscription data from Stripe (source of truth)
-      const subscription = await stripe.subscriptions.retrieve(session.subscription);
+        if (!userKey) {
+          console.error(`[WEBHOOK ERROR] ${timestamp} - Missing userKey in session metadata`, {
+            eventId: event.id,
+            sessionId: session.id
+          });
+          // Update event record with available data
+          recordWebhookEvent(event.id, event.type, session.subscription || null, null);
+          return res.json({ received: true, error: "Missing userKey" });
+        }
 
-      // Calculate isPro based on current Stripe status - ensure paid users get Pro status
-      const isActive = subscription.status === "active" || subscription.status === "trialing";
-      const currentPeriodEnd = subscription.current_period_end
-        ? new Date(subscription.current_period_end * 1000).toISOString()
-        : null;
+        if (!session.subscription) {
+          console.error(`[WEBHOOK ERROR] ${timestamp} - Missing subscription in session`, {
+            eventId: event.id,
+            sessionId: session.id,
+            userKey
+          });
+          // Update event record with userKey
+          recordWebhookEvent(event.id, event.type, null, userKey.trim());
+          return res.json({ received: true, error: "Missing subscription" });
+        }
 
-      // Store subscription in database keyed by userKey (idempotent via ON CONFLICT)
-      // CRITICAL: Always set isPro correctly based on subscription status
-      upsertSubscription(userKey.trim(), {
-        isPro: isActive, // true if active or trialing
-        stripeCustomerId: subscription.customer,
-        stripeSubscriptionId: subscription.id,
-        status: subscription.status,
-        currentPeriodEnd: currentPeriodEnd,
-      });
+        // Always retrieve fresh subscription data from Stripe (source of truth)
+        const subscription = await stripe.subscriptions.retrieve(session.subscription);
 
-      // SYNC TO SUPABASE
-      try {
-        await upsertProfile(userKey.trim(), {
-          is_pro: isActive,
-          stripe_customer_id: subscription.customer,
-          subscription_status: subscription.status
-        });
-        console.log(`[WEBHOOK SYNC] Updated Supabase profile for ${userKey.trim()}`);
-      } catch (err) {
-        console.error(`[WEBHOOK SYNC ERROR] Failed to update Supabase for ${userKey.trim()}:`, err);
-      }
-
-      // Update event record with final subscription data
-      recordWebhookEvent(event.id, event.type, subscription.id, userKey.trim());
-
-      // Track checkout success
-      // Determine plan from subscription items (if available)
-      const plan = subscription.items?.data?.[0]?.price?.recurring?.interval === "year" ? "annual" : "monthly";
-      trackBilling("success", userKey.trim(), plan);
-
-      console.log(`[WEBHOOK SUCCESS] ${timestamp} - Subscription activated`, {
-        eventId: event.id,
-        userKey: userKey.trim(),
-        subscriptionId: subscription.id,
-        status: subscription.status,
-        isPro: isActive,
-        currentPeriodEnd
-      });
-    }
-    // Handle customer.subscription.updated - handles expiration, renewal, status changes
-    else if (event.type === "customer.subscription.updated") {
-      const subscription = event.data.object;
-
-      console.log(`[WEBHOOK PROCESSING] ${timestamp} - customer.subscription.updated`, {
-        eventId: event.id,
-        subscriptionId: subscription.id,
-        status: subscription.status
-      });
-
-      // Always retrieve fresh subscription data from Stripe (source of truth)
-      const freshSubscription = await stripe.subscriptions.retrieve(subscription.id);
-      const existingSub = getSubscriptionByStripeId(freshSubscription.id);
-
-      if (existingSub) {
-        // Determine if subscription is active based on current Stripe status
-        const isActive = freshSubscription.status === "active" || freshSubscription.status === "trialing";
-        const currentPeriodEnd = freshSubscription.current_period_end
-          ? new Date(freshSubscription.current_period_end * 1000).toISOString()
+        // Calculate isPro based on current Stripe status - ensure paid users get Pro status
+        const isActive = subscription.status === "active" || subscription.status === "trialing";
+        const currentPeriodEnd = subscription.current_period_end
+          ? new Date(subscription.current_period_end * 1000).toISOString()
           : null;
 
-        // Update subscription status (handles expiration when status becomes past_due, unpaid, etc.)
-        updateSubscriptionStatus(
-          freshSubscription.id,
-          freshSubscription.status,
-          currentPeriodEnd
-        );
-
-        // Also update isPro flag based on status (idempotent via ON CONFLICT)
+        // Store subscription in database keyed by userKey (idempotent via ON CONFLICT)
         // CRITICAL: Always set isPro correctly based on subscription status
-        upsertSubscription(existingSub.userKey, {
+        upsertSubscription(userKey.trim(), {
           isPro: isActive, // true if active or trialing
-          stripeCustomerId: freshSubscription.customer,
-          stripeSubscriptionId: freshSubscription.id,
-          status: freshSubscription.status,
+          stripeCustomerId: subscription.customer,
+          stripeSubscriptionId: subscription.id,
+          status: subscription.status,
           currentPeriodEnd: currentPeriodEnd,
         });
 
         // SYNC TO SUPABASE
         try {
-          await upsertProfile(existingSub.userKey, {
+          await upsertProfile(userKey.trim(), {
             is_pro: isActive,
-            stripe_customer_id: freshSubscription.customer,
-            subscription_status: freshSubscription.status
-          });
-          console.log(`[WEBHOOK SYNC] Updated Supabase profile for ${existingSub.userKey}`);
-        } catch (err) {
-          console.error(`[WEBHOOK SYNC ERROR] Failed to update Supabase for ${existingSub.userKey}:`, err);
-        }
-
-        // Update event record with subscription data
-        recordWebhookEvent(event.id, event.type, freshSubscription.id, existingSub.userKey);
-
-        console.log(`[WEBHOOK SUCCESS] ${timestamp} - Subscription updated`, {
-          eventId: event.id,
-          subscriptionId: freshSubscription.id,
-          userKey: existingSub.userKey,
-          status: freshSubscription.status,
-          isPro: isActive,
-          currentPeriodEnd
-        });
-      } else {
-        console.warn(`[WEBHOOK WARNING] ${timestamp} - Subscription not found in database`, {
-          eventId: event.id,
-          subscriptionId: subscription.id
-        });
-        // Update event record with subscription data
-        recordWebhookEvent(event.id, event.type, subscription.id, null);
-      }
-    }
-    // Handle customer.subscription.created - initial subscription object
-    else if (event.type === "customer.subscription.created") {
-      const subscription = event.data.object;
-
-      console.log(`[WEBHOOK PROCESSING] ${timestamp} - customer.subscription.created`, {
-        eventId: event.id,
-        subscriptionId: subscription.id,
-        status: subscription.status,
-      });
-
-      // Always retrieve fresh subscription data from Stripe (source of truth)
-      const freshSubscription = await stripe.subscriptions.retrieve(subscription.id);
-      const existingSub = getSubscriptionByStripeId(freshSubscription.id);
-
-      if (existingSub) {
-        const isActive =
-          freshSubscription.status === "active" || freshSubscription.status === "trialing";
-        const currentPeriodEnd = freshSubscription.current_period_end
-          ? new Date(freshSubscription.current_period_end * 1000).toISOString()
-          : null;
-
-        updateSubscriptionStatus(
-          freshSubscription.id,
-          freshSubscription.status,
-          currentPeriodEnd
-        );
-
-        // Ensure isPro reflects current Stripe truth
-        upsertSubscription(existingSub.userKey, {
-          isPro: isActive,
-          stripeCustomerId: freshSubscription.customer,
-          stripeSubscriptionId: freshSubscription.id,
-          status: freshSubscription.status,
-          currentPeriodEnd,
-        });
-
-        // SYNC TO SUPABASE
-        try {
-          await upsertProfile(existingSub.userKey, {
-            is_pro: isActive,
-            stripe_customer_id: freshSubscription.customer,
-            subscription_status: freshSubscription.status
-          });
-        } catch (err) {
-          console.error(`[WEBHOOK SYNC ERROR] Failed to update Supabase for ${existingSub.userKey}:`, err);
-        }
-
-        recordWebhookEvent(event.id, event.type, freshSubscription.id, existingSub.userKey);
-
-        console.log(`[WEBHOOK SUCCESS] ${timestamp} - Subscription created`, {
-          eventId: event.id,
-          subscriptionId: freshSubscription.id,
-          userKey: existingSub.userKey,
-          status: freshSubscription.status,
-          isPro: isActive,
-          currentPeriodEnd,
-        });
-      } else {
-        console.warn(
-          `[WEBHOOK WARNING] ${timestamp} - Subscription not found in database on creation`,
-          {
-            eventId: event.id,
-            subscriptionId: subscription.id,
-          }
-        );
-        recordWebhookEvent(event.id, event.type, subscription.id, null);
-      }
-    }
-    // Handle customer.subscription.deleted - subscription canceled
-    else if (event.type === "customer.subscription.deleted") {
-      const subscription = event.data.object;
-
-      console.log(`[WEBHOOK PROCESSING] ${timestamp} - customer.subscription.deleted`, {
-        eventId: event.id,
-        subscriptionId: subscription.id
-      });
-
-      const existingSub = getSubscriptionByStripeId(subscription.id);
-
-      if (existingSub) {
-        // Handle cancel - set status to canceled and isPro to false
-        updateSubscriptionStatus(subscription.id, "canceled", null);
-
-        // Update isPro to false (idempotent via ON CONFLICT)
-        // CRITICAL: Canceled subscriptions are not Pro
-        upsertSubscription(existingSub.userKey, {
-          isPro: false,
-          stripeCustomerId: subscription.customer,
-          stripeSubscriptionId: subscription.id,
-          status: "canceled",
-          currentPeriodEnd: null,
-        });
-
-        // SYNC TO SUPABASE
-        try {
-          await upsertProfile(existingSub.userKey, {
-            is_pro: false,
             stripe_customer_id: subscription.customer,
-            subscription_status: "canceled"
+            subscription_status: subscription.status
           });
+          console.log(`[WEBHOOK SYNC] Updated Supabase profile for ${userKey.trim()}`);
         } catch (err) {
-          console.error(`[WEBHOOK SYNC ERROR] Failed to update Supabase for ${existingSub.userKey}:`, err);
+          console.error(`[WEBHOOK SYNC ERROR] Failed to update Supabase for ${userKey.trim()}:`, err);
         }
 
-        // Update event record with subscription data
-        recordWebhookEvent(event.id, event.type, subscription.id, existingSub.userKey);
+        // Update event record with final subscription data
+        recordWebhookEvent(event.id, event.type, subscription.id, userKey.trim());
 
-        console.log(`[WEBHOOK SUCCESS] ${timestamp} - Subscription canceled`, {
+        // Track checkout success
+        // Determine plan from subscription items (if available)
+        const plan = subscription.items?.data?.[0]?.price?.recurring?.interval === "year" ? "annual" : "monthly";
+        trackBilling("success", userKey.trim(), plan);
+
+        console.log(`[WEBHOOK SUCCESS] ${timestamp} - Subscription activated`, {
+          eventId: event.id,
+          userKey: userKey.trim(),
+          subscriptionId: subscription.id,
+          status: subscription.status,
+          isPro: isActive,
+          currentPeriodEnd
+        });
+      }
+      // Handle customer.subscription.updated - handles expiration, renewal, status changes
+      else if (event.type === "customer.subscription.updated") {
+        const subscription = event.data.object;
+
+        console.log(`[WEBHOOK PROCESSING] ${timestamp} - customer.subscription.updated`, {
           eventId: event.id,
           subscriptionId: subscription.id,
-          userKey: existingSub.userKey
+          status: subscription.status
         });
-      } else {
-        console.warn(`[WEBHOOK WARNING] ${timestamp} - Subscription not found for deletion`, {
-          eventId: event.id,
-          subscriptionId: subscription.id
-        });
-        recordWebhookEvent(event.id, event.type, subscription.id, null);
-      }
-    }
-    // Handle other subscription events that indicate expiration
-    else if (event.type === "invoice.payment_failed") {
-      const invoice = event.data.object;
 
-      console.log(`[WEBHOOK PROCESSING] ${timestamp} - invoice.payment_failed`, {
-        eventId: event.id,
-        invoiceId: invoice.id,
-        subscriptionId: invoice.subscription || "none"
-      });
-
-      if (invoice.subscription) {
-        // Always retrieve fresh subscription data from Stripe
-        const subscription = await stripe.subscriptions.retrieve(invoice.subscription);
-        const existingSub = getSubscriptionByStripeId(subscription.id);
+        // Always retrieve fresh subscription data from Stripe (source of truth)
+        const freshSubscription = await stripe.subscriptions.retrieve(subscription.id);
+        const existingSub = getSubscriptionByStripeId(freshSubscription.id);
 
         if (existingSub) {
-          const currentPeriodEnd = subscription.current_period_end
-            ? new Date(subscription.current_period_end * 1000).toISOString()
+          // Determine if subscription is active based on current Stripe status
+          const isActive = freshSubscription.status === "active" || freshSubscription.status === "trialing";
+          const currentPeriodEnd = freshSubscription.current_period_end
+            ? new Date(freshSubscription.current_period_end * 1000).toISOString()
             : null;
 
-          // Payment failed - update subscription status
+          // Update subscription status (handles expiration when status becomes past_due, unpaid, etc.)
           updateSubscriptionStatus(
-            subscription.id,
-            subscription.status,
+            freshSubscription.id,
+            freshSubscription.status,
             currentPeriodEnd
           );
 
-          // Update isPro based on current status
+          // Also update isPro flag based on status (idempotent via ON CONFLICT)
           // CRITICAL: Always set isPro correctly based on subscription status
-          const isActive = subscription.status === "active" || subscription.status === "trialing";
           upsertSubscription(existingSub.userKey, {
             isPro: isActive, // true if active or trialing
-            stripeCustomerId: subscription.customer,
-            stripeSubscriptionId: subscription.id,
-            status: subscription.status,
+            stripeCustomerId: freshSubscription.customer,
+            stripeSubscriptionId: freshSubscription.id,
+            status: freshSubscription.status,
             currentPeriodEnd: currentPeriodEnd,
           });
 
@@ -815,62 +642,67 @@ router.post("/billing/webhook", async (req, res) => {
           try {
             await upsertProfile(existingSub.userKey, {
               is_pro: isActive,
-              stripe_customer_id: subscription.customer,
-              subscription_status: subscription.status
+              stripe_customer_id: freshSubscription.customer,
+              subscription_status: freshSubscription.status
             });
+            console.log(`[WEBHOOK SYNC] Updated Supabase profile for ${existingSub.userKey}`);
           } catch (err) {
             console.error(`[WEBHOOK SYNC ERROR] Failed to update Supabase for ${existingSub.userKey}:`, err);
           }
 
           // Update event record with subscription data
-          recordWebhookEvent(event.id, event.type, subscription.id, existingSub.userKey);
+          recordWebhookEvent(event.id, event.type, freshSubscription.id, existingSub.userKey);
 
-          console.log(`[WEBHOOK SUCCESS] ${timestamp} - Payment failed handled`, {
+          console.log(`[WEBHOOK SUCCESS] ${timestamp} - Subscription updated`, {
             eventId: event.id,
-            subscriptionId: subscription.id,
+            subscriptionId: freshSubscription.id,
             userKey: existingSub.userKey,
-            status: subscription.status,
-            isPro: isActive
+            status: freshSubscription.status,
+            isPro: isActive,
+            currentPeriodEnd
           });
         } else {
+          console.warn(`[WEBHOOK WARNING] ${timestamp} - Subscription not found in database`, {
+            eventId: event.id,
+            subscriptionId: subscription.id
+          });
           // Update event record with subscription data
           recordWebhookEvent(event.id, event.type, subscription.id, null);
         }
-      } else {
-        // Update event record (no subscription)
-        recordWebhookEvent(event.id, event.type, null, null);
       }
-    }
-    // Handle invoice.paid - successful payment / renewal
-    else if (event.type === "invoice.paid") {
-      const invoice = event.data.object;
+      // Handle customer.subscription.created - initial subscription object
+      else if (event.type === "customer.subscription.created") {
+        const subscription = event.data.object;
 
-      console.log(`[WEBHOOK PROCESSING] ${timestamp} - invoice.paid`, {
-        eventId: event.id,
-        invoiceId: invoice.id,
-        subscriptionId: invoice.subscription || "none",
-      });
+        console.log(`[WEBHOOK PROCESSING] ${timestamp} - customer.subscription.created`, {
+          eventId: event.id,
+          subscriptionId: subscription.id,
+          status: subscription.status,
+        });
 
-      if (invoice.subscription) {
-        const subscription = await stripe.subscriptions.retrieve(invoice.subscription);
-        const existingSub = getSubscriptionByStripeId(subscription.id);
+        // Always retrieve fresh subscription data from Stripe (source of truth)
+        const freshSubscription = await stripe.subscriptions.retrieve(subscription.id);
+        const existingSub = getSubscriptionByStripeId(freshSubscription.id);
 
         if (existingSub) {
-          const currentPeriodEnd = subscription.current_period_end
-            ? new Date(subscription.current_period_end * 1000).toISOString()
+          const isActive =
+            freshSubscription.status === "active" || freshSubscription.status === "trialing";
+          const currentPeriodEnd = freshSubscription.current_period_end
+            ? new Date(freshSubscription.current_period_end * 1000).toISOString()
             : null;
 
-          // Payment succeeded - update subscription status and entitlement
-          updateSubscriptionStatus(subscription.id, subscription.status, currentPeriodEnd);
+          updateSubscriptionStatus(
+            freshSubscription.id,
+            freshSubscription.status,
+            currentPeriodEnd
+          );
 
-          const isActive =
-            subscription.status === "active" || subscription.status === "trialing";
-
+          // Ensure isPro reflects current Stripe truth
           upsertSubscription(existingSub.userKey, {
             isPro: isActive,
-            stripeCustomerId: subscription.customer,
-            stripeSubscriptionId: subscription.id,
-            status: subscription.status,
+            stripeCustomerId: freshSubscription.customer,
+            stripeSubscriptionId: freshSubscription.id,
+            status: freshSubscription.status,
             currentPeriodEnd,
           });
 
@@ -878,43 +710,228 @@ router.post("/billing/webhook", async (req, res) => {
           try {
             await upsertProfile(existingSub.userKey, {
               is_pro: isActive,
-              stripe_customer_id: subscription.customer,
-              subscription_status: subscription.status
+              stripe_customer_id: freshSubscription.customer,
+              subscription_status: freshSubscription.status
             });
           } catch (err) {
             console.error(`[WEBHOOK SYNC ERROR] Failed to update Supabase for ${existingSub.userKey}:`, err);
           }
 
-          recordWebhookEvent(event.id, event.type, subscription.id, existingSub.userKey);
+          recordWebhookEvent(event.id, event.type, freshSubscription.id, existingSub.userKey);
 
-          console.log(`[WEBHOOK SUCCESS] ${timestamp} - Payment succeeded`, {
+          console.log(`[WEBHOOK SUCCESS] ${timestamp} - Subscription created`, {
             eventId: event.id,
-            subscriptionId: subscription.id,
+            subscriptionId: freshSubscription.id,
             userKey: existingSub.userKey,
-            status: subscription.status,
+            status: freshSubscription.status,
             isPro: isActive,
             currentPeriodEnd,
           });
         } else {
+          console.warn(
+            `[WEBHOOK WARNING] ${timestamp} - Subscription not found in database on creation`,
+            {
+              eventId: event.id,
+              subscriptionId: subscription.id,
+            }
+          );
           recordWebhookEvent(event.id, event.type, subscription.id, null);
-          console.warn(`[WEBHOOK WARNING] ${timestamp} - invoice.paid subscription not found`, {
+        }
+      }
+      // Handle customer.subscription.deleted - subscription canceled
+      else if (event.type === "customer.subscription.deleted") {
+        const subscription = event.data.object;
+
+        console.log(`[WEBHOOK PROCESSING] ${timestamp} - customer.subscription.deleted`, {
+          eventId: event.id,
+          subscriptionId: subscription.id
+        });
+
+        const existingSub = getSubscriptionByStripeId(subscription.id);
+
+        if (existingSub) {
+          // Handle cancel - set status to canceled and isPro to false
+          updateSubscriptionStatus(subscription.id, "canceled", null);
+
+          // Update isPro to false (idempotent via ON CONFLICT)
+          // CRITICAL: Canceled subscriptions are not Pro
+          upsertSubscription(existingSub.userKey, {
+            isPro: false,
+            stripeCustomerId: subscription.customer,
+            stripeSubscriptionId: subscription.id,
+            status: "canceled",
+            currentPeriodEnd: null,
+          });
+
+          // SYNC TO SUPABASE
+          try {
+            await upsertProfile(existingSub.userKey, {
+              is_pro: false,
+              stripe_customer_id: subscription.customer,
+              subscription_status: "canceled"
+            });
+          } catch (err) {
+            console.error(`[WEBHOOK SYNC ERROR] Failed to update Supabase for ${existingSub.userKey}:`, err);
+          }
+
+          // Update event record with subscription data
+          recordWebhookEvent(event.id, event.type, subscription.id, existingSub.userKey);
+
+          console.log(`[WEBHOOK SUCCESS] ${timestamp} - Subscription canceled`, {
             eventId: event.id,
             subscriptionId: subscription.id,
+            userKey: existingSub.userKey
           });
+        } else {
+          console.warn(`[WEBHOOK WARNING] ${timestamp} - Subscription not found for deletion`, {
+            eventId: event.id,
+            subscriptionId: subscription.id
+          });
+          recordWebhookEvent(event.id, event.type, subscription.id, null);
         }
-      } else {
-        recordWebhookEvent(event.id, event.type, null, null);
       }
-    }
+      // Handle other subscription events that indicate expiration
+      else if (event.type === "invoice.payment_failed") {
+        const invoice = event.data.object;
 
-    // Return 200 to Stripe to acknowledge receipt
-    res.json({ received: true });
-  } catch (err) {
-    console.error(`[WEBHOOK CRITICAL ERROR] ${timestamp} - Processing failed:`, err);
-    // Return 200 even on error to prevent Stripe from retrying infinitely if it's a logic error
-    // (Stripe will retry on 500)
-    res.status(500).send(`Webhook Error: ${err.message}`);
-  }
-});
+        console.log(`[WEBHOOK PROCESSING] ${timestamp} - invoice.payment_failed`, {
+          eventId: event.id,
+          invoiceId: invoice.id,
+          subscriptionId: invoice.subscription || "none"
+        });
+
+        if (invoice.subscription) {
+          // Always retrieve fresh subscription data from Stripe
+          const subscription = await stripe.subscriptions.retrieve(invoice.subscription);
+          const existingSub = getSubscriptionByStripeId(subscription.id);
+
+          if (existingSub) {
+            const currentPeriodEnd = subscription.current_period_end
+              ? new Date(subscription.current_period_end * 1000).toISOString()
+              : null;
+
+            // Payment failed - update subscription status
+            updateSubscriptionStatus(
+              subscription.id,
+              subscription.status,
+              currentPeriodEnd
+            );
+
+            // Update isPro based on current status
+            // CRITICAL: Always set isPro correctly based on subscription status
+            const isActive = subscription.status === "active" || subscription.status === "trialing";
+            upsertSubscription(existingSub.userKey, {
+              isPro: isActive, // true if active or trialing
+              stripeCustomerId: subscription.customer,
+              stripeSubscriptionId: subscription.id,
+              status: subscription.status,
+              currentPeriodEnd: currentPeriodEnd,
+            });
+
+            // SYNC TO SUPABASE
+            try {
+              await upsertProfile(existingSub.userKey, {
+                is_pro: isActive,
+                stripe_customer_id: subscription.customer,
+                subscription_status: subscription.status
+              });
+            } catch (err) {
+              console.error(`[WEBHOOK SYNC ERROR] Failed to update Supabase for ${existingSub.userKey}:`, err);
+            }
+
+            // Update event record with subscription data
+            recordWebhookEvent(event.id, event.type, subscription.id, existingSub.userKey);
+
+            console.log(`[WEBHOOK SUCCESS] ${timestamp} - Payment failed handled`, {
+              eventId: event.id,
+              subscriptionId: subscription.id,
+              userKey: existingSub.userKey,
+              status: subscription.status,
+              isPro: isActive
+            });
+          } else {
+            // Update event record with subscription data
+            recordWebhookEvent(event.id, event.type, subscription.id, null);
+          }
+        } else {
+          // Update event record (no subscription)
+          recordWebhookEvent(event.id, event.type, null, null);
+        }
+      }
+      // Handle invoice.paid - successful payment / renewal
+      else if (event.type === "invoice.paid") {
+        const invoice = event.data.object;
+
+        console.log(`[WEBHOOK PROCESSING] ${timestamp} - invoice.paid`, {
+          eventId: event.id,
+          invoiceId: invoice.id,
+          subscriptionId: invoice.subscription || "none",
+        });
+
+        if (invoice.subscription) {
+          const subscription = await stripe.subscriptions.retrieve(invoice.subscription);
+          const existingSub = getSubscriptionByStripeId(subscription.id);
+
+          if (existingSub) {
+            const currentPeriodEnd = subscription.current_period_end
+              ? new Date(subscription.current_period_end * 1000).toISOString()
+              : null;
+
+            // Payment succeeded - update subscription status and entitlement
+            updateSubscriptionStatus(subscription.id, subscription.status, currentPeriodEnd);
+
+            const isActive =
+              subscription.status === "active" || subscription.status === "trialing";
+
+            upsertSubscription(existingSub.userKey, {
+              isPro: isActive,
+              stripeCustomerId: subscription.customer,
+              stripeSubscriptionId: subscription.id,
+              status: subscription.status,
+              currentPeriodEnd,
+            });
+
+            // SYNC TO SUPABASE
+            try {
+              await upsertProfile(existingSub.userKey, {
+                is_pro: isActive,
+                stripe_customer_id: subscription.customer,
+                subscription_status: subscription.status
+              });
+            } catch (err) {
+              console.error(`[WEBHOOK SYNC ERROR] Failed to update Supabase for ${existingSub.userKey}:`, err);
+            }
+
+            recordWebhookEvent(event.id, event.type, subscription.id, existingSub.userKey);
+
+            console.log(`[WEBHOOK SUCCESS] ${timestamp} - Payment succeeded`, {
+              eventId: event.id,
+              subscriptionId: subscription.id,
+              userKey: existingSub.userKey,
+              status: subscription.status,
+              isPro: isActive,
+              currentPeriodEnd,
+            });
+          } else {
+            recordWebhookEvent(event.id, event.type, subscription.id, null);
+            console.warn(`[WEBHOOK WARNING] ${timestamp} - invoice.paid subscription not found`, {
+              eventId: event.id,
+              subscriptionId: subscription.id,
+            });
+          }
+        } else {
+          recordWebhookEvent(event.id, event.type, null, null);
+        }
+      }
+
+      // Return 200 to Stripe to acknowledge receipt
+      res.json({ received: true });
+    } catch (err) {
+      console.error(`[WEBHOOK CRITICAL ERROR] ${timestamp} - Processing failed:`, err);
+      // Return 200 even on error to prevent Stripe from retrying infinitely if it's a logic error
+      // (Stripe will retry on 500)
+      res.status(500).send(`Webhook Error: ${err.message}`);
+    }
+  });
 
 export default router;

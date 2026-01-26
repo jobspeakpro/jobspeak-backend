@@ -1,5 +1,6 @@
+```javascript
 import express from "express";
-import textToSpeech from "@google-cloud/text-to-speech";
+// import textToSpeech from "@google-cloud/text-to-speech"; // Converted to dynamic import for memory optimization
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
@@ -65,8 +66,8 @@ if (authReady) {
     // Write credentials to file
     fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(credResult.creds));
     process.env.GOOGLE_APPLICATION_CREDENTIALS = CREDENTIALS_PATH;
-    console.log(`[TTS] Auth success: Credentials written to ${CREDENTIALS_PATH}`);
-    console.log(`[TTS] Project ID: ${credResult.creds.project_id}`);
+    console.log(`[TTS] Auth success: Credentials written to ${ CREDENTIALS_PATH } `);
+    console.log(`[TTS] Project ID: ${ credResult.creds.project_id } `);
 
     client = new textToSpeech.TextToSpeechClient();
     console.log("[TTS] TTS client initialized OK");
@@ -74,7 +75,7 @@ if (authReady) {
     console.error("[TTS] Failed to initialize Google TTS Client:", err.message);
   }
 } else {
-  console.error(`[TTS] Auth Error: ${credResult.error}`);
+  console.error(`[TTS] Auth Error: ${ credResult.error } `);
 }
 
 // --- HEALTH CHECK ---
@@ -194,7 +195,7 @@ function resolveVoice(locale, voiceName, variant) {
  * @returns {string} SHA256 hash as cache key
  */
 function getCacheKey(text, languageCode, voiceName, speakingRate) {
-  const data = `${text}|${languageCode}|${voiceName}|${speakingRate}`;
+  const data = `${ text }| ${ languageCode }| ${ voiceName }| ${ speakingRate } `;
   return crypto.createHash("sha256").update(data).digest("hex");
 }
 
@@ -204,7 +205,7 @@ function getCacheKey(text, languageCode, voiceName, speakingRate) {
  * @returns {Buffer|null} Audio buffer or null if not cached
  */
 function getCachedAudio(cacheKey) {
-  const cachePath = path.join(cacheDir, `${cacheKey}.mp3`);
+  const cachePath = path.join(cacheDir, `${ cacheKey }.mp3`);
   if (fs.existsSync(cachePath)) {
     return fs.readFileSync(cachePath);
   }
@@ -217,7 +218,7 @@ function getCachedAudio(cacheKey) {
  * @param {Buffer} audioBuffer - Audio data
  */
 function saveCachedAudio(cacheKey, audioBuffer) {
-  const cachePath = path.join(cacheDir, `${cacheKey}.mp3`);
+  const cachePath = path.join(cacheDir, `${ cacheKey }.mp3`);
   try {
     fs.writeFileSync(cachePath, audioBuffer);
   } catch (error) {
@@ -251,7 +252,7 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || req.connection?.r
       voice = resolveVoice(locale, voiceName, voiceVariant);
 
       // Log resolution (dev-only/debug)
-      console.log(`[TTS] locale=${locale || 'default'} voiceName=${voiceName || 'default'} variant=${voiceVariant || 'none'} -> voiceId=${voice.name}`);
+      console.log(`[TTS] locale = ${ locale || 'default' } voiceName = ${ voiceName || 'default' } variant = ${ voiceVariant || 'none' } -> voiceId=${ voice.name } `);
     }
 
     // Get speaking rate (support both 'speed' and 'speakingRate')
@@ -279,12 +280,12 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || req.connection?.r
     // Check cache
     const cachedAudio = getCachedAudio(cacheKey);
     if (cachedAudio) {
-      console.log(`[TTS] Cache hit: ${cacheKey.substring(0, 8)}...`);
+      console.log(`[TTS] Cache hit: ${ cacheKey.substring(0, 8) }...`);
       res.setHeader("X-Cache-Hit", "true");
 
       // Return Data URI in JSON
       const base64Audio = cachedAudio.toString('base64');
-      const audioUrl = `data:audio/mpeg;base64,${base64Audio}`;
+      const audioUrl = `data: audio / mpeg; base64, ${ base64Audio } `;
 
       return res.status(200).json({
         ok: true,
@@ -295,7 +296,7 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || req.connection?.r
     }
 
     // Cache miss - call Google TTS API
-    console.log(`[TTS] Cache miss: ${cacheKey.substring(0, 8)}... - calling Google TTS`);
+    console.log(`[TTS] Cache miss: ${ cacheKey.substring(0, 8) }... - calling Google TTS`);
     const request = {
       input: { text },
       voice: { languageCode: voice.languageCode, name: voice.name },
@@ -318,11 +319,11 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || req.connection?.r
       response = apiResponse;
 
       const duration = Date.now() - startTime;
-      console.log(`[TTS] response received in ${duration}ms`);
+      console.log(`[TTS] response received in ${ duration } ms`);
 
     } catch (err) {
       const duration = Date.now() - startTime;
-      console.error(`[TTS] Google API Failed after ${duration}ms. Error: ${err.message}`);
+      console.error(`[TTS] Google API Failed after ${ duration } ms.Error: ${ err.message } `);
 
       // Return JSON 200 with error
       return res.status(200).json({
@@ -352,9 +353,9 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || req.connection?.r
 
     // Return Data URI in JSON
     const base64Audio = audioBuffer.toString('base64');
-    const audioUrl = `data:audio/mpeg;base64,${base64Audio}`;
+    const audioUrl = `data: audio / mpeg; base64, ${ base64Audio } `;
 
-    console.log(`[TTS] Returning status=200 JSON with audioUrl (cache miss)`);
+    console.log(`[TTS] Returning status = 200 JSON with audioUrl(cache miss)`);
     return res.status(200).json({
       ok: true,
       audioUrl,
