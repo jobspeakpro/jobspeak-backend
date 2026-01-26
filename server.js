@@ -321,6 +321,37 @@ app.get("/api/debug_ping", (req, res) => {
   res.json({ pong: true, time: new Date().toISOString() });
 });
 
+app.get("/debug/routes", (req, res) => {
+  if (process.env.NODE_ENV === 'production' && req.query.key !== 'debug_prod_2026') {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const routes = [];
+  app._router.stack.forEach((middleware) => {
+    if (middleware.route) { // routes registered directly on the app
+      routes.push({
+        path: middleware.route.path,
+        methods: Object.keys(middleware.route.methods)
+      });
+    } else if (middleware.name === 'router') { // router middleware 
+      middleware.handle.stack.forEach((handler) => {
+        if (handler.route) {
+          const baseUrl = middleware.regexp.source
+            .replace('^\\', '')
+            .replace('\\/?(?=\\/|$)', '');
+          // Clean up regex artifacts is hard, but usually simple check helps
+          routes.push({
+            path: handler.route.path,
+            methods: Object.keys(handler.route.methods),
+            base: baseUrl
+          });
+        }
+      });
+    }
+  });
+  res.json({ routes });
+});
+
 // API routes (mounted under /api prefix for frontend proxy compatibility)
 // POST /api/stt - Speech-to-text endpoint
 // GET /api/sessions?userKey=... - Get user sessions
