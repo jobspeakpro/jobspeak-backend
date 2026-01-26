@@ -1,5 +1,5 @@
 import express from "express";
-import Stripe from "stripe";
+// import Stripe from "stripe"; // Dynamic import
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -10,13 +10,27 @@ if (!process.env.STRIPE_SECRET_KEY) {
   console.error("❌ STRIPE_SECRET_KEY is required in environment variables");
 }
 
-const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
+let stripeInstance;
+async function getStripe() {
+  if (stripeInstance) return stripeInstance;
+  if (!process.env.STRIPE_SECRET_KEY) return null;
+  try {
+    const { default: Stripe } = await import("stripe");
+    stripeInstance = new Stripe(process.env.STRIPE_SECRET_KEY);
+  } catch (e) {
+    console.error("Failed to load Stripe:", e);
+  }
+  return stripeInstance;
+}
+
+// const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
 // -------------------------
 // CREATE CHECKOUT SESSION
 // -------------------------
 router.post("/create-checkout-session", async (req, res) => {
   try {
+    const stripe = await getStripe();
     const { plan } = req.body;
 
     // Defensive logging: check which env vars are present (without printing secrets)
