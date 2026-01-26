@@ -43,7 +43,10 @@ function testFfmpegWithSpawn(binaryPath) {
     });
 }
 
-(async () => {
+// Lazy resolve function - no top-level side effects
+async function resolveFfmpeg() {
+    if (ffmpegPathResolved) return;
+
     try {
         if (process.env.FFMPEG_PATH) {
             const test = await testFfmpegWithSpawn(process.env.FFMPEG_PATH);
@@ -57,18 +60,18 @@ function testFfmpegWithSpawn(binaryPath) {
             const test = await testFfmpegWithSpawn(ffmpegStatic);
             if (test.success) ffmpegPath = ffmpegStatic;
         }
-        ffmpegPathResolved = true;
         if (ffmpegPath) console.log("[AudioTranscriber] FFmpeg resolved:", ffmpegPath);
         else console.warn("[AudioTranscriber] FFmpeg NOT found.");
     } catch (e) {
         console.error("[AudioTranscriber] Error resolving FFmpeg:", e);
+    } finally {
         ffmpegPathResolved = true;
     }
-})();
+}
 
 async function transcodeToWav(inputPath) {
     if (!ffmpegPathResolved) {
-        await new Promise(r => setTimeout(r, 1000)); // wait a bit
+        await resolveFfmpeg();
     }
     if (!ffmpegPath) throw new Error("FFmpeg not available");
 
