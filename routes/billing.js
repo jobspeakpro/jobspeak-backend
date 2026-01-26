@@ -294,9 +294,18 @@ router.get("/billing/status", async (req, res) => {
     // Resolve userKey from multiple sources (header, body, query, form-data)
     const userKey = resolveUserKey(req);
 
-    // Validate userKey - return 400 on missing field
+    // Validate userKey - return safe fallback instead of 400 to prevent CORS issues
     if (!userKey) {
-      return res.status(400).json({ error: "Missing userKey" });
+      return res.status(200).json({
+        isPro: false,
+        status: null,
+        currentPeriodEnd: null,
+        usage: {
+          used: 0,
+          limit: FREE_DAILY_LIMIT,
+          remaining: FREE_DAILY_LIMIT,
+        },
+      });
     }
 
     // Get subscription from database (keyed by userKey) - reads latest data
@@ -432,8 +441,8 @@ router.get("/billing/status", async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Billing status error:", err?.message || err);
-    // Return stable schema even on error
-    res.status(500).json({
+    // NEVER return 500/502 - always return 200 with safe fallback to prevent CORS issues
+    res.status(200).json({
       isPro: false,
       status: null,
       currentPeriodEnd: null,
