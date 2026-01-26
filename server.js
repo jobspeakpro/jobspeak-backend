@@ -189,8 +189,16 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// Explicit OPTIONS handler for all routes to ensure preflight works
-app.options("*", cors(corsOptions));
+// Global OPTIONS handler - MUST come before route registration
+// This ensures preflight requests never hit auth/billing logic
+app.options("*", (req, res) => {
+  res.status(204)
+    .header("Access-Control-Allow-Origin", req.headers.origin || "https://jobspeakpro.com")
+    .header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+    .header("Access-Control-Allow-Headers", "Content-Type, Authorization, x-user-key, x-guest-key")
+    .header("Access-Control-Allow-Credentials", "true")
+    .end();
+});
 
 app.get("/", (req, res) => {
   res.json({ status: "ok", message: "JobSpeakPro backend running" });
