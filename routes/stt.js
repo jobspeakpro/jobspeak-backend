@@ -12,7 +12,7 @@ import { rateLimiter } from "../middleware/rateLimiter.js";
 import { getSubscription } from "../services/db.js";
 import { getUsage, recordAttempt, isBlocked } from "../services/sttUsageStore.js";
 import { resolveUserKey } from "../middleware/resolveUserKey.js";
-import ffmpegStatic from "ffmpeg-static";
+// import ffmpegStatic from "ffmpeg-static"; // Converted to dynamic
 import crypto from "crypto";
 // Sentry removed
 const captureException = (err, context) => console.error("[SENTRY_FALLBACK]", err, context);
@@ -85,7 +85,7 @@ function testFfmpegWithSpawn(binaryPath) {
  * 
  * @returns {Promise<{path: string|null, version: string|null, reason: string|null}>}
  */
-async function getFfmpegPath() {
+async function getFfmpegPath(staticPath = null) {
   // Option 1: Check FFMPEG_PATH environment variable (must exist; spawn it with -version)
   if (process.env.FFMPEG_PATH) {
     const envPath = process.env.FFMPEG_PATH.trim();
@@ -103,10 +103,10 @@ async function getFfmpegPath() {
   }
 
   // Option 3: Fall back to ffmpeg-static only if spawn works
-  if (ffmpegStatic) {
-    const staticTest = await testFfmpegWithSpawn(ffmpegStatic);
+  if (staticPath) {
+    const staticTest = await testFfmpegWithSpawn(staticPath);
     if (staticTest.success) {
-      return { path: ffmpegStatic, version: staticTest.version || null, reason: null };
+      return { path: staticPath, version: staticTest.version || null, reason: null };
     }
   }
 
@@ -129,7 +129,16 @@ let ffmpegPathResolved = false;
 // Initialize ffmpeg path asynchronously
 (async () => {
   try {
-    const result = await getFfmpegPath();
+    // Dynamic import to prevent startup crash if module is missing/broken
+    let staticPath = null;
+    try {
+      const ffmpegModule = await import("ffmpeg-static");
+      staticPath = ffmpegModule.default;
+    } catch (e) {
+      console.warn("[STT] ffmpeg-static module not found or failed to load:", e.message);
+    }
+
+    const result = await getFfmpegPath(staticPath);
     ffmpegPathResolved = true;
 
     if (result.path) {
