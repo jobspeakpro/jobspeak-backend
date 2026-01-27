@@ -1,0 +1,30 @@
+HTTP/1.1 200 OK
+Access-Control-Allow-Credentials: true
+Access-Control-Expose-Headers: x-jsp-backend-commit,x-identity-used,x-identity-mode
+Content-Length: 70
+Content-Type: application/json; charset=utf-8
+Date: Tue, 27 Jan 2026 02:22:01 GMT
+Server: railway-edge
+Vary: Origin
+X-Powered-By: Express
+X-Railway-Edge: railway/us-east4-eqdc4a
+X-Railway-Request-Id: ZzN3BoQvQx6yNo2qCx5-qw
+X-Request-Id: gytnfljmkvz0jsk
+
+{"success":true,"ok":true,"id":"44d23f67-0a7c-426d-bf7f-42ea4eabde14"}
+
+✅ SUCCESS - Affiliate application submitted successfully
+✅ Application ID: 44d23f67-0a7c-426d-bf7f-42ea4eabde14
+
+Test Payload:
+{
+  "name": "Test Affiliate Debug",
+  "email": "test-debug@example.com",
+  "country": "United States",
+  "primaryPlatform": "YouTube",
+  "audienceSize": "10k-50k",
+  "payoutPreference": "paypal",
+  "payoutDetails": "test-payout@example.com",
+  "channelLink": "https://youtube.com/@testchannel",
+  "promoPlan": "I will promote JobSpeakPro through my YouTube channel"
+}
