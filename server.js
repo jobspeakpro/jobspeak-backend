@@ -1,4 +1,3 @@
-// jobspeak-backend/server.js
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -10,30 +9,30 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { execSync } from "child_process";
 
-import accountRoutes from "./routes/account.js";
-import activityRoutes from "./routes/activity.js";
-import aiRoutes from "./routes/ai.js";
+// import accountRoutes from "./routes/account.js";
+// import activityRoutes from "./routes/activity.js";
+// import aiRoutes from "./routes/ai.js";
 import authRoutes from "./routes/auth.js";
-import billingRoutes from "./routes/billing.js";
-import dashboardRoutes from "./routes/dashboard.js";
-import dailyTipRoutes from "./routes/dailyTip.js";
-import heardAboutRoutes from "./routes/heardAbout.js";
-import mockInterviewRoutes from "./routes/mockInterview.js";
-import practiceRoutes from "./routes/practice.js";
-import progressRoutes from "./routes/progress.js";
-import reflectionRoutes from "./routes/reflection.js";
-import resumeRoutes from "./routes/resume.js";
-import sessionsRoutes from "./routes/sessions.js";
-import stripeRoutes from "./routes/stripe.js";
-import sttRoutes from "./routes/stt.js";
-import ttsRoutes from "./routes/tts.js";
-import usageRoutes from "./routes/usage.js";
-import voiceRoutes from "./voiceRoute.js";
+// import billingRoutes from "./routes/billing.js";
+// import dashboardRoutes from "./routes/dashboard.js";
+// import dailyTipRoutes from "./routes/dailyTip.js";
+// import heardAboutRoutes from "./routes/heardAbout.js";
+// import mockInterviewRoutes from "./routes/mockInterview.js";
+// import practiceRoutes from "./routes/practice.js";
+// import progressRoutes from "./routes/progress.js";
+// import reflectionRoutes from "./routes/reflection.js";
+// import resumeRoutes from "./routes/resume.js";
+// import sessionsRoutes from "./routes/sessions.js";
+// import stripeRoutes from "./routes/stripe.js";
+// import sttRoutes from "./routes/stt.js";
+// import ttsRoutes from "./routes/tts.js";
+// import usageRoutes from "./routes/usage.js";
+// import voiceRoutes from "./voiceRoute.js";
 
 // New Feature Routes
-import referralRoutes from "./routes/referrals.js";
+// import referralRoutes from "./routes/referrals.js";
 import affiliateRoutes from "./routes/affiliates.js";
-import supportRoutes from "./routes/support.js";
+// import supportRoutes from "./routes/support.js";
 
 import { requestLogger } from "./middleware/logger.js";
 import { errorHandler } from "./middleware/errorHandler.js";
@@ -84,7 +83,7 @@ if (sentryInitialized) {
 }
 
 // Webhook endpoint needs raw body for signature verification - must be before express.json()
-app.use("/api/billing/webhook", express.raw({ type: "application/json" }));
+// app.use("/api/billing/webhook", express.raw({ type: "application/json" }));
 
 // Body size limits (10MB for JSON, 25MB for file uploads handled by multer)
 app.use(express.json({ limit: '10mb' }));
@@ -212,7 +211,7 @@ app.get("/", (req, res) => {
   res.json({
     status: "ok",
     message: "JobSpeakPro backend running",
-    version: "MailerSend-Silver-Final",
+    version: "MailerSend-Silver-Final-SAFE",
     timestamp: new Date().toISOString()
   });
 });
@@ -272,68 +271,7 @@ app.get("/audio/onboarding", (req, res) => {
 
 // CRITICAL: Hard-coded TTS health endpoint (app-level to avoid routing issues)
 app.get("/api/tts/health", (req, res) => {
-  const raw = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
-
-  if (!raw) {
-    return res.status(500).json({
-      ok: false,
-      ttsReady: false,
-      authMode: "service_account_json",
-      projectId: null,
-      error: "missing_creds"
-    });
-  }
-
-  try {
-    // Handle common Railway paste formats
-    let s = raw.trim();
-
-    // If the whole thing is quoted, unquote by JSON parsing once
-    if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
-      try {
-        s = JSON.parse(s);
-      } catch (e) {
-        s = s.slice(1, -1);
-      }
-    }
-
-    // DO NOT replace \\n before JSON.parse - it corrupts the JSON
-    const creds = JSON.parse(s);
-
-    // Validate required fields
-    if (!creds.client_email || !creds.private_key || !creds.project_id) {
-      return res.status(500).json({
-        ok: false,
-        ttsReady: false,
-        authMode: "service_account_json",
-        projectId: null,
-        error: "bad_creds_shape"
-      });
-    }
-
-    // Normalize private_key AFTER parse only
-    if (typeof creds.private_key === "string") {
-      creds.private_key = creds.private_key.replace(/\\n/g, "\n");
-    }
-
-    return res.json({
-      ok: true,
-      ttsReady: true,
-      authMode: "service_account_json",
-      projectId: creds.project_id,
-      hasCreds: true,
-      error: null
-    });
-  } catch (e) {
-    return res.status(500).json({
-      ok: false,
-      ttsReady: false,
-      authMode: "service_account_json",
-      projectId: null,
-      error: "creds_parse_failed",
-      detail: e.message
-    });
-  }
+  return res.json({ ok: false, message: "DISABLED_SAFE_MODE" });
 });
 
 // ------------ ROUTES ------------
@@ -346,64 +284,35 @@ app.get("/debug/routes", (req, res) => {
   if (process.env.NODE_ENV === 'production' && req.query.key !== 'debug_prod_2026') {
     return res.status(401).json({ error: "Unauthorized" });
   }
-
-  const routes = [];
-  app._router.stack.forEach((middleware) => {
-    if (middleware.route) { // routes registered directly on the app
-      routes.push({
-        path: middleware.route.path,
-        methods: Object.keys(middleware.route.methods)
-      });
-    } else if (middleware.name === 'router') { // router middleware 
-      middleware.handle.stack.forEach((handler) => {
-        if (handler.route) {
-          const baseUrl = middleware.regexp.source
-            .replace('^\\', '')
-            .replace('\\/?(?=\\/|$)', '');
-          // Clean up regex artifacts is hard, but usually simple check helps
-          routes.push({
-            path: handler.route.path,
-            methods: Object.keys(handler.route.methods),
-            base: baseUrl
-          });
-        }
-      });
-    }
-  });
-  res.json({ routes });
+  res.json({ ok: true, mode: "safe" });
 });
 
 // API routes (mounted under /api prefix for frontend proxy compatibility)
-// POST /api/stt - Speech-to-text endpoint
-// GET /api/sessions?userKey=... - Get user sessions
-// POST /api/sessions - Save session
-// GET /api/billing/status?userKey=... - Get billing status
-// POST /api/track - Analytics event tracking
-import analyticsRoutes from "./routes/analytics.js";
-app.use("/api", accountRoutes);   // /api/account (DELETE), /api/account/restore (POST)
-app.use("/api", activityRoutes);  // /api/activity/start, /api/activity/events
-app.use("/api", analyticsRoutes); // /api/track
-app.use("/api", billingRoutes);  // /api/billing/*
-app.use("/api", dashboardRoutes); // /api/dashboard/*
-app.use("/api", dailyTipRoutes);  // /api/daily-tip
-app.use("/api", mockInterviewRoutes); // /api/mock-interview/*
-app.use("/api", practiceRoutes);  // /api/practice/*
-app.use("/api/profile", heardAboutRoutes); // /api/profile/heard-about
-app.use("/api", progressRoutes);  // /api/progress/summary
-app.use("/api", reflectionRoutes); // /api/daily-reflection
-app.use("/api", sttRoutes);      // /api/stt
-app.use("/api", ttsRoutes);      // /api/tts, /api/tts/health
-app.use("/api", sessionsRoutes);  // /api/sessions
-app.use("/api", usageRoutes);    // /api/usage/*
+// import analyticsRoutes from "./routes/analytics.js";
+// app.use("/api", accountRoutes);   // /api/account (DELETE), /api/account/restore (POST)
+// app.use("/api", activityRoutes);  // /api/activity/start, /api/activity/events
+// app.use("/api", analyticsRoutes); // /api/track
+// app.use("/api", billingRoutes);  // /api/billing/*
+// app.use("/api", dashboardRoutes); // /api/dashboard/*
+// app.use("/api", dailyTipRoutes);  // /api/daily-tip
+// app.use("/api", mockInterviewRoutes); // /api/mock-interview/*
+// app.use("/api", practiceRoutes);  // /api/practice/*
+// app.use("/api/profile", heardAboutRoutes); // /api/profile/heard-about
+// app.use("/api", progressRoutes);  // /api/progress/summary
+// app.use("/api", reflectionRoutes); // /api/daily-reflection
+// app.use("/api", sttRoutes);      // /api/stt
+// app.use("/api", ttsRoutes);      // /api/tts, /api/tts/health
+// app.use("/api", sessionsRoutes);  // /api/sessions
+// app.use("/api", usageRoutes);    // /api/usage/*
 
 // Mount new features
-app.use("/api", referralRoutes);
+// app.use("/api", referralRoutes);
 app.use("/api", affiliateRoutes);
-app.use("/api", supportRoutes);
+// app.use("/api", supportRoutes);
 
 // Non-API routes
-app.use("/ai", aiRoutes);
-app.use("/auth", authRoutes);
+// app.use("/ai", aiRoutes);
+app.use("/auth", authRoutes); // Keep auth for affiliate user attachment
 
 // Fix for Frontend posting to /affiliate/apply instead of /api/affiliate/apply
 app.use("/", affiliateRoutes); // Ment to capture /affiliate/apply directly
@@ -411,99 +320,18 @@ app.use("/", affiliateRoutes); // Ment to capture /affiliate/apply directly
 // ADMIN: One-time migration endpoint (Secret protected)
 // This exists because direct DB access is unavailable and startup scripts were causing issues.
 app.post("/__admin/migrate", async (req, res) => {
-  const secret = req.headers['x-admin-secret'];
-  const expected = process.env.SUPABASE_SERVICE_ROLE_KEY || 'force_manual_migration'; // Use service key as auth or fallback
-
-  if (secret !== expected && secret !== 'temporary_migration_key_2026') {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-
-  try {
-    console.log("[ADMIN] Starting Manual Migration via HTTP...");
-    const { Client } = await import('pg'); // Dynamic import
-    const client = new Client({
-      connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false }
-    });
-
-    await client.connect();
-
-    await client.query(`
-            -- Add payout and platform detail columns to affiliate_applications
-            ALTER TABLE affiliate_applications 
-            ADD COLUMN IF NOT EXISTS payout_preference text,
-            ADD COLUMN IF NOT EXISTS payout_details text,
-            ADD COLUMN IF NOT EXISTS primary_platform text,
-            ADD COLUMN IF NOT EXISTS other_platform_text text,
-            ADD COLUMN IF NOT EXISTS notification_status text,
-            ADD COLUMN IF NOT EXISTS notification_error text;
-
-            -- Ensure constraint on profiles.referral_code
-            ALTER TABLE profiles
-            DROP CONSTRAINT IF EXISTS profiles_referral_code_key;
-
-            ALTER TABLE profiles
-            ADD CONSTRAINT profiles_referral_code_key UNIQUE (referral_code);
-        `);
-
-    await client.end();
-    console.log("[ADMIN] Migration success users.");
-    res.json({ success: true, message: "Migration applied" });
-  } catch (err) {
-    console.error("[ADMIN] Migration failed:", err);
-    res.status(500).json({ error: err.message });
-  }
+  // Disabled in safe mode
+  res.status(401).json({ error: "SAFE_MODE_DISABLED" });
 });
-app.use("/resume", resumeRoutes);
-app.use("/stripe", stripeRoutes);
-app.use("/voice", voiceRoutes);
-
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ error: "Not found" });
-});
-
-// Sentry error handler (must be before other error handlers, only if Sentry is initialized)
-if (sentryInitialized) {
-  app.use(Sentry.Handlers.errorHandler());
-}
-
-// Centralized error handler (must be last)
-app.use(errorHandler);
+// app.use("/resume", resumeRoutes);
+// app.use("/stripe", stripeRoutes);
+// app.use("/voice", voiceRoutes);
 
 // Railway requires explicit binding to 0.0.0.0 to accept external connections
 // PORT must come from process.env.PORT (Railway sets this automatically)
 console.log(`[STARTUP] Starting server on port ${PORT} (from ${process.env.PORT ? 'process.env.PORT' : 'default 3000'})`);
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ Backend listening on 0.0.0.0:${PORT}`);
+  console.log(`✅ Backend (SAFE MODE) listening on 0.0.0.0:${PORT}`);
   console.log(`✅ Health check available at: http://0.0.0.0:${PORT}/health`);
   console.log(`[BACKEND] Server ready`, { port: PORT, env: process.env.NODE_ENV || "development" });
-  console.log(`[DEPLOY] Force update 2026-01-27 MailerSend Silver`);
-}).on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    const isWindows = process.platform === 'win32';
-
-    console.error('\n❌ Port already in use!');
-    console.error(`Port ${PORT} is already being used by another process.\n`);
-
-    if (isWindows) {
-      console.error('🔧 Windows detected. Run these commands to resolve:\n');
-      console.error(`  1. Find the process using port ${PORT}:`);
-      console.error(`     netstat -ano | findstr :${PORT}\n`);
-      console.error(`  2. Kill the process (replace <PID> with the PID from step 1):`);
-      console.error(`     taskkill /PID <PID> /F\n`);
-      console.error(`  3. Retry starting the server:`);
-      console.error(`     npm run dev\n`);
-    } else {
-      console.error('🔧 To resolve on Unix/Linux/Mac:');
-      console.error(`  1. Find the process: lsof -ti:${PORT}`);
-      console.error(`  2. Kill it: kill -9 $(lsof -ti:${PORT})`);
-      console.error(`  3. Retry: npm run dev\n`);
-    }
-
-    process.exit(1);
-  } else {
-    // Re-throw other errors
-    throw err;
-  }
 });
