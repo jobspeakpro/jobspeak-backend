@@ -1,0 +1,84 @@
+name: Debug Production Crash
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  debug-startup:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js 20
+      uses: actions/setup-node@v3
+      with:
+        node-version: '20'
+        
+    - name: Install Dependencies
+      run: npm ci
+      
+    - name: Install Railway CLI
+      run: npm install -g @railway/cli
+
+    - name: Fetch Railway Logs
+      continue-on-error: true
+      env:
+        RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      run: |
+        echo "Fetching Railway logs..."
+        # Try to decouple service name if possible or let token handle context
+        # Pipe to head to prevent streaming hang
+        railway logs --service jobspeak-backend-production 2>&1 | head -n 300 > railway-logs.txt || echo "Failed to fetch logs"
+        
+    - name: Analyze Logs
+      id: analysis
+      continue-on-error: true
+      run: |
+        echo "=== LOG ANALYSIS ==="
+        if grep -q "Cannot find module" railway-logs.txt; then
+          echo "::error::FAILURE: Missing Dependency (Cannot find module)"
+          echo "DETECTED_FAILURE=Missing Dependency" >> $GITHUB_ENV
+        elif grep -q "EADDRINUSE" railway-logs.txt; then
+          echo "::error::FAILURE: Port Binding Issue (EADDRINUSE)"
+          echo "DETECTED_FAILURE=Port Binding Issue" >> $GITHUB_ENV
+        elif grep -q "npm ERR!" railway-logs.txt; then
+          echo "::error::FAILURE: Build Failed (npm error)"
+          echo "DETECTED_FAILURE=Build Failed" >> $GITHUB_ENV
+        elif grep -q "Error: P1001" railway-logs.txt; then
+          echo "::error::FAILURE: Database Connection Failed"
+          echo "DETECTED_FAILURE=Database Connection Failed" >> $GITHUB_ENV
+        elif grep -q "ReferenceError" railway-logs.txt; then
+          echo "::error::FAILURE: Runtime Code Error"
+          echo "DETECTED_FAILURE=Runtime Code Error" >> $GITHUB_ENV
+        elif grep -q "SyntaxError" railway-logs.txt; then
+          echo "::error::FAILURE: Syntax Error"
+          echo "DETECTED_FAILURE=Syntax Error" >> $GITHUB_ENV
+        else
+          echo "No known patterns matched."
+        fi
+
+    - name: Upload Logs Artifact
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: railway-logs
+        path: railway-logs.txt
+
+    - name: Health Check
+      run: |
+        echo "Checking production health..."
+        status_code=$(curl --write-out "%{http_code}" --silent --output /dev/null https://jobspeak-backend-production.up.railway.app/health)
+        
+        if [ "$status_code" -ne 200 ]; then
+          echo "Health check FAILED with status $status_code"
+          echo "Backend is DOWN."
+          if [ ! -z "$DETECTED_FAILURE" ]; then
+             echo "FINAL DIAGNOSIS: $DETECTED_FAILURE"
+          fi
+          exit 1
+        else
+          echo "Health check PASSED (200 OK)"
+        fi

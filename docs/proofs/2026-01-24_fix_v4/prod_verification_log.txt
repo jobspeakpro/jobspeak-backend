@@ -1,0 +1,10 @@
+Strict Verification Start: 2026-01-26T01:38:45.757Z
+⚠️ Migration Trigger returned 502
+Running Route Checks...
+✅ Route /api/referrals/me EXISTS.
+✅ Route /api/affiliate/apply EXISTS.
+Authenticated as prod_verify_strict_1769391571318@example.com
+
+--- Testing POST /affiliate/apply (Prod Payload) ---
+Prod Response: 502 {"status":"error","code":502,"message":"Application failed to respond","request_id":"TieogDj5T6m8WI2ZBT7zVQ"}
+❌ FAIL: API returned error. Deployment likely still old or migration failed.

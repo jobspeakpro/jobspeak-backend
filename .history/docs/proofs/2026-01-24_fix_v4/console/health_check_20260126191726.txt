@@ -1,0 +1,5 @@
+[FINAL CHECK]
+Endpoint: https://jobspeak-backend-production.up.railway.app/health
+Status: 502 Bad Gateway / Timeout
+Note: ReferenceError fix and OOM mitigation were deployed.
+Likely Cause: Deployment Queue Timeout or Persistent Build Failure (requires log access).

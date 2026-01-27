@@ -1,0 +1,31 @@
+✅ DATABASE WRITE VERIFIED
+
+Query: GET https://wlxacpqlokoiqqhgaads.supabase.co/rest/v1/affiliate_applications?id=eq.44d23f67-0a7c-426d-bf7f-42ea4eabde14
+
+Response: HTTP/1.1 200 OK
+
+Affiliate Application Row Data:
+{
+  "id": "44d23f67-0a7c-426d-bf7f-42ea4eabde14",
+  "name": "Test Affiliate Debug",
+  "email": "test-debug@example.com",
+  "country": "United States",
+  "platform": "YouTube",
+  "channel_link": "https://youtube.com/@testchannel",
+  "promo_plan": "I will promote JobSpeakPro through my YouTube channel",
+  "status": "pending",
+  "created_at": "2026-01-27T02:22:01.648868+00:00",
+  "audience_size": "10k-50k",
+  "user_id": null,
+  "payout_preference": "paypal",
+  "payout_details": "test-payout@example.com",
+  "primary_platform": "YouTube",
+  "other_platform_text": null
+}
+
+✅ Verification Summary:
+- Application ID: 44d23f67-0a7c-426d-bf7f-42ea4eabde14
+- Status: pending
+- Created: 2026-01-27T02:22:01.648868+00:00
+- All fields correctly stored in Supabase
+- Database write successful

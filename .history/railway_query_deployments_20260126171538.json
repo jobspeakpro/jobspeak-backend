@@ -1,0 +1,3 @@
+{
+    "query": "query { deployments(first: 1) { edges { node { id status } } } }"
+}

@@ -1,0 +1,5 @@
+Node.js v20.20.0
+file:///app/routes/billing.js:935
+  });
+  ^
+SyntaxError: Missing catch or finally after try

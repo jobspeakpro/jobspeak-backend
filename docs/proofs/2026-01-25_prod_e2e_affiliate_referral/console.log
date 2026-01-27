@@ -1,0 +1,29 @@
+[log] HTML MARKER LOADED: html-marker-live-1
+[log] Supabase Env Vars Present: {url: true, key: true, mode: production}
+[log] [BUILD_ID] prod-routes-v1
+[log] ROUTE: /affiliate
+[error] Access to fetch at 'https://jobspeak-backend-production.up.railway.app/api/billing/status' from origin 'https://jobspeakpro.com' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource.
+[error] Failed to load resource: net::ERR_FAILED
+[error] Error checking billing status: ApiError: Failed to fetch (jobspeak-backend-production.up.railway.app)
+    at Le (https://jobspeakpro.com/assets/index-DtOsjPKs.js:81:6286)
+    at async i (https://jobspeakpro.com/assets/index-DtOsjPKs.js:81:15713)
+[log] HTML MARKER LOADED: html-marker-live-1
+[log] Supabase Env Vars Present: {url: true, key: true, mode: production}
+[log] [BUILD_ID] prod-routes-v1
+[log] ROUTE: /login
+[log] ROUTE: /
+[error] Access to fetch at 'https://jobspeak-backend-production.up.railway.app/api/billing/status' from origin 'https://jobspeakpro.com' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource.
+[error] Failed to load resource: net::ERR_FAILED
+[error] Error checking billing status: ApiError: Failed to fetch (jobspeak-backend-production.up.railway.app)
+    at Le (https://jobspeakpro.com/assets/index-DtOsjPKs.js:81:6286)
+    at async i (https://jobspeakpro.com/assets/index-DtOsjPKs.js:81:15713)
+[log] HTML MARKER LOADED: html-marker-live-1
+[log] Supabase Env Vars Present: {url: true, key: true, mode: production}
+[log] [BUILD_ID] prod-routes-v1
+[log] ROUTE: /referral
+[log] ROUTE: /signin
+[error] Access to fetch at 'https://jobspeak-backend-production.up.railway.app/api/billing/status' from origin 'https://jobspeakpro.com' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource.
+[error] Failed to load resource: net::ERR_FAILED
+[error] Error checking billing status: ApiError: Failed to fetch (jobspeak-backend-production.up.railway.app)
+    at Le (https://jobspeakpro.com/assets/index-DtOsjPKs.js:81:6286)
+    at async i (https://jobspeakpro.com/assets/index-DtOsjPKs.js:81:15713)

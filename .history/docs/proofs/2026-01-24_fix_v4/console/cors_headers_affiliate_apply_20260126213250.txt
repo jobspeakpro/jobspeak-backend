@@ -1,0 +1,48 @@
+✅ CORS VERIFICATION FOR https://jobspeakpro.com
+
+=== OPTIONS Preflight Request ===
+Request:
+curl -i -X OPTIONS https://jobspeak-backend-production.up.railway.app/api/affiliate/apply \
+  -H "Origin: https://jobspeakpro.com" \
+  -H "Access-Control-Request-Method: POST" \
+  -H "Access-Control-Request-Headers: Content-Type,x-user-key"
+
+Response:
+HTTP/1.1 204 No Content
+Access-Control-Allow-Credentials: true
+Access-Control-Allow-Headers: Content-Type,Authorization,x-user-key,x-guest-key,x-attempt-id,X-Attempt-Id,x-jsp-backend-commit,x-identity-used,x-identity-mode
+Access-Control-Allow-Methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
+Access-Control-Allow-Origin: https://jobspeakpro.com
+Access-Control-Expose-Headers: x-jsp-backend-commit,x-identity-used,x-identity-mode
+Vary: Origin
+
+✅ CORS Headers Present:
+- Access-Control-Allow-Origin: https://jobspeakpro.com
+- Access-Control-Allow-Methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
+- Access-Control-Allow-Headers: Content-Type,Authorization,x-user-key,x-guest-key,x-attempt-id,X-Attempt-Id,x-jsp-backend-commit,x-identity-used,x-identity-mode
+- Access-Control-Allow-Credentials: true
+
+=== POST Request with Origin ===
+Request:
+curl -i -X POST https://jobspeak-backend-production.up.railway.app/api/affiliate/apply \
+  -H "Origin: https://jobspeakpro.com" \
+  -H "Content-Type: application/json" \
+  -H "x-user-key: test-cors-check" \
+  --data-binary "@test_affiliate_payload.json"
+
+Response:
+HTTP/1.1 200 OK
+Access-Control-Allow-Credentials: true
+Access-Control-Allow-Origin: https://jobspeakpro.com
+Access-Control-Expose-Headers: x-jsp-backend-commit,x-identity-used,x-identity-mode
+Content-Type: application/json; charset=utf-8
+Vary: Origin
+
+{"success":true,"ok":true,"id":"44ccb7a7-8716-4fc5-9f14-a733db100a86"}
+
+✅ CORS Verification Summary:
+- Origin https://jobspeakpro.com is ALLOWED
+- Preflight (OPTIONS) returns 204 with correct CORS headers
+- POST request returns 200 OK with Access-Control-Allow-Origin header
+- Credentials are allowed (Access-Control-Allow-Credentials: true)
+- All required headers are whitelisted

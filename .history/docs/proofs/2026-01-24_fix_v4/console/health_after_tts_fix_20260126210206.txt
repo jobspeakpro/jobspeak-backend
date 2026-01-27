@@ -1,0 +1,24 @@
+HTTP/1.1 200 OK
+Access-Control-Allow-Credentials: true
+Access-Control-Expose-Headers: x-jsp-backend-commit,x-identity-used,x-identity-mode
+Content-Length: 154
+Content-Type: application/json; charset=utf-8
+Date: Tue, 27 Jan 2026 02:01:44 GMT
+Server: railway-edge
+Vary: Origin
+X-Powered-By: Express
+X-Railway-Edge: railway/us-east4-eqdc4a
+X-Railway-Request-Id: COzsen2QRwusjWBUBhdwDg
+X-Request-Id: 23dyez9mkvyahie
+
+{"ok":true,"timestamp":"2026-01-27T02:01:44.486Z","service":"JobSpeakPro Backend","commit":"9a993fb156e8385fc30451b3e437dcb9f52d31c0","version":"9a993fb"}
+
+✅ SUCCESS - Backend is now operational!
+
+Sequential fixes applied:
+1. Fixed duplicate PORT declaration (SyntaxError)
+2. Fixed missing routes/support.js module (ERR_MODULE_NOT_FOUND)
+3. Fixed missing catch block in routes/billing.js (SyntaxError)
+4. Fixed invalid markdown code fence in routes/tts.js (SyntaxError)
+
+Final deployment commit: 9a993fb156e8385fc30451b3e437dcb9f52d31c0

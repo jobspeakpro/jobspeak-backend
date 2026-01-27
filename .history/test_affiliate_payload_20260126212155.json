@@ -1,0 +1,11 @@
+{
+    "name": "Test Affiliate Debug",
+    "email": "test-debug@example.com",
+    "country": "United States",
+    "primaryPlatform": "YouTube",
+    "audienceSize": "10k-50k",
+    "payoutPreference": "paypal",
+    "payoutDetails": "test-payout@example.com",
+    "channelLink": "https://youtube.com/@testchannel",
+    "promoPlan": "I will promote JobSpeakPro through my YouTube channel"
+}

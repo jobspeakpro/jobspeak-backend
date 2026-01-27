@@ -1,0 +1,17 @@
+HTTP/1.1 401 Unauthorized
+Access-Control-Allow-Credentials: true
+Access-Control-Expose-Headers: x-jsp-backend-commit,x-identity-used,x-identity-mode
+Content-Length: 24
+Content-Type: application/json; charset=utf-8
+Date: Tue, 27 Jan 2026 02:06:33 GMT
+Server: railway-edge
+Vary: Origin
+X-Powered-By: Express
+X-Railway-Edge: railway/us-east4-eqdc4a
+X-Railway-Request-Id: nCc86K4HQGWOLshzozsQ6Q
+X-Request-Id: v32z9lpmkvygoga
+
+{"error":"Unauthorized"}
+
+✅ Expected behavior: 401 Unauthorized (not authenticated)
+✅ Key validation: NOT 404 or 502 - endpoint exists and is routing correctly

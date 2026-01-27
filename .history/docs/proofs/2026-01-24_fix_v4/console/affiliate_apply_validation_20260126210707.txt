@@ -1,0 +1,18 @@
+HTTP/1.1 400 Bad Request
+Access-Control-Allow-Credentials: true
+Access-Control-Expose-Headers: x-jsp-backend-commit,x-identity-used,x-identity-mode
+Content-Length: 199
+Content-Type: application/json; charset=utf-8
+Date: Tue, 27 Jan 2026 02:06:34 GMT
+Server: railway-edge
+Vary: Origin
+X-Powered-By: Express
+X-Railway-Edge: railway/us-east4-eqdc4a
+X-Railway-Request-Id: bA7rx87FSgKZ2WeYBhdwDg
+X-Request-Id: udtc8a1mkvygp8q
+
+{"success":false,"error":"validation_failed","errors":{"name":"Required","email":"Required","country":"Required","primaryPlatform":"Required","audienceSize":"Required","payoutPreference":"Required"}}
+
+✅ Expected behavior: 400 Bad Request with validation errors
+✅ Key validation: NOT 404 or 502 - endpoint exists and validation logic is working correctly
+✅ Required fields validated: name, email, country, primaryPlatform, audienceSize, payoutPreference

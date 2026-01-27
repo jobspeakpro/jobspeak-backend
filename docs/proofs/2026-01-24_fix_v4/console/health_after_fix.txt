@@ -1,0 +1,15 @@
+HTTP/1.1 502 Bad Gateway
+Content-Length: 109
+Content-Type: application/json
+Server: railway-edge
+X-Railway-Edge: railway/us-east4-eqdc4a
+X-Railway-Fallback: true
+X-Railway-Request-Id: Fx4KgsTiQUetxwFyg4a9AQ
+Date: Tue, 27 Jan 2026 01:18:52 GMT
+
+{"status":"error","code":502,"message":"Application failed to respond","request_id":"Fx4KgsTiQUetxwFyg4a9AQ"}
+
+Note: Checked at ~5 minutes after support.js fix deployment. Still 502.
+This indicates there is ANOTHER runtime error after fixing the missing module.
+
+User needs to check Railway deployment logs again for the NEXT fatal error.

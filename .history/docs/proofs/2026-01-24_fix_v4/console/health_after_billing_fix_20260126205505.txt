@@ -1,0 +1,20 @@
+HTTP/1.1 502 Bad Gateway
+Content-Length: 109
+Content-Type: application/json
+Server: railway-edge
+X-Railway-Edge: railway/us-east4-eqdc4a
+X-Railway-Fallback: true
+X-Railway-Request-Id: r_QeaEjeRG-j8l8Hc9o55Q
+Date: Tue, 27 Jan 2026 01:54:40 GMT
+
+{"status":"error","code":502,"message":"Application failed to respond","request_id":"r_QeaEjeRG-j8l8Hc9o55Q"}
+
+Note: Checked at ~5 minutes after billing.js fix deployment. Still 502.
+
+Fixes applied so far:
+1. Fixed duplicate PORT declaration (SyntaxError)
+2. Fixed missing routes/support.js module (ERR_MODULE_NOT_FOUND)
+3. Fixed missing catch block in routes/billing.js (SyntaxError: Missing catch or finally after try)
+
+Backend still 502 means there is ANOTHER runtime error.
+User needs to provide the next fatal error from Railway logs.

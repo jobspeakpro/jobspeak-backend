@@ -1,0 +1,22 @@
+{
+  "id": "1273cefa-c952-474d-9b9e-96f9009eb78a",
+  "display_name": "verify_v4_1769312587044@example.com",
+  "job_title": null,
+  "seniority": null,
+  "industry": null,
+  "difficulty": null,
+  "tts_speed_pref": null,
+  "focus_areas": [],
+  "created_at": "2026-01-25T03:43:07.825615+00:00",
+  "updated_at": "2026-01-25T03:43:08.780577+00:00",
+  "is_pro": false,
+  "stripe_customer_id": null,
+  "subscription_status": null,
+  "avatar_url": null,
+  "deleted_at": null,
+  "onboarding_complete": false,
+  "heard_about_us": null,
+  "referral_code": "REF-ABB5FD66",
+  "referred_by": null,
+  "credits": 0
+}

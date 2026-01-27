@@ -1,0 +1,18 @@
+HTTP/1.1 502 Bad Gateway
+Content-Length: 109
+Content-Type: application/json
+Server: railway-edge
+X-Railway-Edge: railway/us-east4-eqdc4a
+X-Railway-Fallback: true
+X-Railway-Request-Id: i1lZ-JXmRMuJFtzxozsQ6Q
+Date: Tue, 27 Jan 2026 00:32:50 GMT
+
+{"status":"error","code":502,"message":"Application failed to respond","request_id":"i1lZ-JXmRMuJFtzxozsQ6Q"}
+
+Note: Checked at ~3 minutes after deployment push. Still 502.
+This indicates either:
+1. Deployment is still building/starting (Railway can take 3-5 minutes)
+2. There is another runtime error after the PORT fix
+3. The application is crashing on startup for a different reason
+
+User should check Railway deployment logs for the latest build status.

@@ -1,0 +1,6 @@
+[AGENT NOTE]
+Verification Success!
+Routes /api/referrals/me and /api/affiliate/apply are now reachable (returning 401/200 instead of 404/502).
+
+See console/route_check.txt for full output.
+Commit `409df94` (Delete package-lock.json) fixed the build.

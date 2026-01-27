@@ -1,0 +1,12 @@
+query {
+  me {
+    projects {
+      id
+      name
+      services {
+        id
+        name
+      }
+    }
+  }
+}

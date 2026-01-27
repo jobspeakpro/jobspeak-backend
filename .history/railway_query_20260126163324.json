@@ -1,0 +1,3 @@
+{
+    "query": "query { me { projects { name services { id name } } } }"
+}

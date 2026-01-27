@@ -1,0 +1,7 @@
+[AGENT NOTE]
+I attempted to run `railway logs` but the CLI is not installed on this machine (Command failed: railway --version).
+I cannot access the Railway dashboard to copy-paste logs as requested.
+
+Diagnosis:
+The "Minimal Server" 502 failure strongly suggests a build-time error caused by `package-lock.json` platform mismatches (Windows vs Linux).
+Action Taken: Deleted `package-lock.json` to force clean `npm install` on Railway.

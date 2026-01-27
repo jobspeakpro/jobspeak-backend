@@ -1,0 +1,10 @@
+Route Checks Start: 2026-01-26T01:38:45.758Z
+
+=== Step 0: Trigger Manual Migration ===
+Migration Response: 502 {"status":"error","code":502,"message":"Application failed to respond","request_id":"GNFNOaaoT9yLaMu-BT7zVQ"}
+=== CHECK 1: GET https://jobspeak-backend-production.up.railway.app/api/referrals/me ===
+HTTP/502 Bad Gateway
+Response Body: {"status":"error","code":502,"message":"Application failed to respond","request_id":"3X78TZBhStWqc6mJBT7zVQ"}
+=== CHECK 2: POST https://jobspeak-backend-production.up.railway.app/api/affiliate/apply ===
+HTTP/502 Bad Gateway
+Body: {"status":"error","code":502,"message":"Application failed to respond","request_id":"nW-qN-MQTSqXZgi_BT7zVQ"}

@@ -1,0 +1,4 @@
+[TIMEOUT] Verification script timed out after 5 minutes.
+Endpoint: https://jobspeak-backend-production.up.railway.app/health
+Status: 502 Bad Gateway / Connection Timeout
+Recommended Action: Check Railway Build Logs for startup errors.

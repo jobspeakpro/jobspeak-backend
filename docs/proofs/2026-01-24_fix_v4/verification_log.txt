@@ -1,0 +1,20 @@
+Authenticated as verify_v4_1769312553884@example.com (13fc199c-8ed7-406a-ae7a-5a563792b811)
+
+--- Testing GET /api/referrals/me ---
+Authenticated as verify_v4_1769312587044@example.com (1273cefa-c952-474d-9b9e-96f9009eb78a)
+
+--- Testing GET /api/referrals/me ---
+Response 1: 200 {"code":"REF-ABB5FD66","referralCode":"REF-ABB5FD66","inviteUrl":"https://jobspeakpro.com/?ref=REF-ABB5FD66"}
+Response 2: 200 {"code":"REF-ABB5FD66","referralCode":"REF-ABB5FD66","inviteUrl":"https://jobspeakpro.com/?ref=REF-ABB5FD66"}
+✅ SUCCESS: Referral code is persistent and idempotent.
+✅ DB PROOF: Profile has referral_code: REF-ABB5FD66
+
+--- Testing POST /affiliate/apply (Validation) ---
+Fail Response: 400 {"success":false,"error":"validation_failed","errors":{"email":"Required","country":"Required","primaryPlatform":"Required","audienceSize":"Required","payoutPreference":"Required"}}
+✅ SUCCESS: Validation working.
+
+--- Testing POST /affiliate/apply (Success) ---
+Success Response: 500 {"error":"Failed to submit application","details":"Could not find the 'payout_details' column of 'affiliate_applications' in the schema cache"}
+❌ FAILURE: Application submit failed
+
+Verification Complete.
