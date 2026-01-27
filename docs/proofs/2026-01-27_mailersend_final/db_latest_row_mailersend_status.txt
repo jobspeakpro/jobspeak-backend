@@ -1,0 +1,10 @@
+[EXPECTED OUTPUT SAMPLE - PRODUCTION VERIFICATION REQUIRED]
+
+id: <uuid>
+status: pending
+payout_details: "user@example.com | mailersend:sent@2026-01-27T16:00:00.000Z"
+_notify_status: sent
+_notify_time: 2026-01-27T16:00:00.000Z
+
+OR (on failure):
+payout_details: "user@example.com | mailersend:failed:Reason-Text-Here@2026-01-27T16:00:00.000Z"

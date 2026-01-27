@@ -1,0 +1,1 @@
+AFFILIATE_NOTIFY_EMAIL=jobspeakpro@gmail.com

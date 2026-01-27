@@ -1,0 +1,14 @@
+{
+    "name": "Manual ZeroMig Verify",
+    "email": "manual.zeromig@example.com",
+    "country": "United States",
+    "primaryPlatform": "YouTube",
+    "audienceSize": "5k-10k",
+    "payoutPreference": "paypal",
+    "payoutDetails": {
+        "email": "manual.zeromig@paypal.com"
+    },
+    "otherPlatformText": "Manual Script",
+    "channelLink": "http://manual-zeromig.com",
+    "promoPlan": "Manual Plan"
+}

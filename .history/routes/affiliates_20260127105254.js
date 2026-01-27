@@ -174,11 +174,11 @@ router.post('/affiliate/apply', async (req, res) => { // Changed path back to or
             if (emailResult.skipped) {
                 statusSuffix = `| mailersend:skipped:${emailResult.reason}`;
             } else if (emailResult.success) {
-                statusSuffix = `| mailersend:sent@${timestamp}`;
+                statusSuffix = `| mailersend:sent:${timestamp}`;
             } else if (emailResult.error) {
                 // Truncate error message to avoid huge strings
                 const safeError = (emailResult.message || 'unknown').substring(0, 100).replace(/\|/g, '-'); // Sanitize pipe
-                statusSuffix = `| mailersend:failed:${safeError}@${timestamp}`;
+                statusSuffix = `| mailersend:failed:${safeError}`;
             }
 
             if (statusSuffix) {
@@ -204,64 +204,55 @@ router.post('/affiliate/apply', async (req, res) => { // Changed path back to or
     }
 });
 
-router.get('/__admin/affiliate-applications/latest', async (req, res) => {
-    const adminToken = process.env.ADMIN_TOKEN;
+const adminToken = process.env.ADMIN_TOKEN;
 
-    if (req.headers['x-admin-token'] !== adminToken) {
-        return res.status(403).json({ error: 'Unauthorized' });
-    }
+if (req.headers['x-admin-token'] !== adminToken) {
+    return res.status(403).json({ error: 'Unauthorized' });
+}
 
-    try {
-        const { data, error } = await supabase
-            .from('affiliate_applications')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(5);
+try {
+    const { data, error } = await supabase
+        .from('affiliate_applications')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(5);
 
-        if (error) throw error;
+    if (error) throw error;
 
-        // Parse status for easier reading
-        const parsedData = data.map(app => {
-            const details = app.payout_details || '';
-            let notifyStatus = 'unknown';
-            let notifyTime = null;
-            let notifyError = null;
+    // Parse status for easier reading
+    const parsedData = data.map(app => {
+        const details = app.payout_details || '';
+        let notifyStatus = 'unknown';
+        let notifyTime = null;
+        let notifyError = null;
 
-            if (details.includes('mailersend:sent@')) {
-                notifyStatus = 'sent';
-                const parts = details.split('mailersend:sent@');
-                notifyTime = parts[1]?.trim();
-            } else if (details.includes('mailersend:failed:')) {
-                notifyStatus = 'failed';
-                const parts = details.split('mailersend:failed:');
-                const content = parts[1] || '';
+        if (details.includes('mailersend:sent:')) {
+            notifyStatus = 'sent';
+            const parts = details.split('mailersend:sent:');
+            notifyTime = parts[1]?.trim();
+        } else if (details.includes('mailersend:failed:')) {
+            notifyStatus = 'failed';
+            const parts = details.split('mailersend:failed:');
+            notifyError = parts[1]?.trim();
+        } else if (details.includes('mailersend:skipped:')) {
+            notifyStatus = 'skipped';
+            const parts = details.split('mailersend:skipped:');
+            notifyError = parts[1]?.trim();
+        }
 
-                if (content.includes('@')) {
-                    const [errReason, errTime] = content.split('@');
-                    notifyError = errReason.trim();
-                    notifyTime = errTime ? errTime.trim() : null;
-                } else {
-                    notifyError = content.trim();
-                }
-            } else if (details.includes('mailersend:skipped:')) {
-                notifyStatus = 'skipped';
-                const parts = details.split('mailersend:skipped:');
-                notifyError = parts[1]?.trim();
-            }
+        return {
+            ...app,
+            _notify_status: notifyStatus,
+            _notify_time: notifyTime,
+            _notify_error: notifyError
+        };
+    });
 
-            return {
-                ...app,
-                _notify_status: notifyStatus,
-                _notify_time: notifyTime,
-                _notify_error: notifyError
-            };
-        });
-
-        res.json({ success: true, applications: parsedData });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Internal server error' });
-    }
+    res.json({ success: true, applications: parsedData });
+} catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+}
 });
 
 export default router;

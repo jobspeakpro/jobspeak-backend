@@ -174,11 +174,11 @@ router.post('/affiliate/apply', async (req, res) => { // Changed path back to or
             if (emailResult.skipped) {
                 statusSuffix = `| mailersend:skipped:${emailResult.reason}`;
             } else if (emailResult.success) {
-                statusSuffix = `| mailersend:sent@${timestamp}`;
+                statusSuffix = `| mailersend:sent:${timestamp}`;
             } else if (emailResult.error) {
                 // Truncate error message to avoid huge strings
                 const safeError = (emailResult.message || 'unknown').substring(0, 100).replace(/\|/g, '-'); // Sanitize pipe
-                statusSuffix = `| mailersend:failed:${safeError}@${timestamp}`;
+                statusSuffix = `| mailersend:failed:${safeError}`;
             }
 
             if (statusSuffix) {
@@ -227,22 +227,14 @@ router.get('/__admin/affiliate-applications/latest', async (req, res) => {
             let notifyTime = null;
             let notifyError = null;
 
-            if (details.includes('mailersend:sent@')) {
+            if (details.includes('mailersend:sent:')) {
                 notifyStatus = 'sent';
-                const parts = details.split('mailersend:sent@');
+                const parts = details.split('mailersend:sent:');
                 notifyTime = parts[1]?.trim();
             } else if (details.includes('mailersend:failed:')) {
                 notifyStatus = 'failed';
                 const parts = details.split('mailersend:failed:');
-                const content = parts[1] || '';
-
-                if (content.includes('@')) {
-                    const [errReason, errTime] = content.split('@');
-                    notifyError = errReason.trim();
-                    notifyTime = errTime ? errTime.trim() : null;
-                } else {
-                    notifyError = content.trim();
-                }
+                notifyError = parts[1]?.trim();
             } else if (details.includes('mailersend:skipped:')) {
                 notifyStatus = 'skipped';
                 const parts = details.split('mailersend:skipped:');
