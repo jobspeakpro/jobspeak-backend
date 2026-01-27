@@ -12,10 +12,10 @@ const router = express.Router();
 async function sendAffiliateNotification(data) {
     const apiKey = process.env.MAILERSEND_API_KEY;
     const notifyEmail = process.env.AFFILIATE_NOTIFY_EMAIL;
-    const fromEmail = process.env.MAILERSEND_FROM_EMAIL; // Strict usage, no hardcoded fallback
+    const fromEmail = process.env.MAILERSEND_FROM_EMAIL || 'system@jobspeakpro.com';
 
-    if (!apiKey || !notifyEmail || !fromEmail) {
-        console.warn('[MailerSend] Skipped: Missing MAILERSEND_API_KEY, AFFILIATE_NOTIFY_EMAIL, or MAILERSEND_FROM_EMAIL');
+    if (!apiKey || !notifyEmail) {
+        console.warn('[MailerSend] Skipped: Missing MAILERSEND_API_KEY or AFFILIATE_NOTIFY_EMAIL');
         return { skipped: true, reason: 'Missing env vars' };
     }
 

@@ -1,0 +1,14 @@
+{
+    "name": "Manual Cleanup Verify",
+    "email": "manual.clean@example.com",
+    "country": "United States",
+    "primaryPlatform": "YouTube",
+    "audienceSize": "5k-10k",
+    "payoutPreference": "paypal",
+    "payoutDetails": {
+        "email": "manual.clean@paypal.com"
+    },
+    "otherPlatformText": "Manual Script",
+    "channelLink": "http://manual-clean.com",
+    "promoPlan": "Manual Plan"
+}
