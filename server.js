@@ -473,6 +473,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Backend listening on 0.0.0.0:${PORT}`);
   console.log(`✅ Health check available at: http://0.0.0.0:${PORT}/health`);
   console.log(`[BACKEND] Server ready`, { port: PORT, env: process.env.NODE_ENV || "development" });
+  console.log(`[DEPLOY] Force update 2026-01-27 MailerSend Silver`);
 }).on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     const isWindows = process.platform === 'win32';
