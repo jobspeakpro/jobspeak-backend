@@ -170,7 +170,8 @@ async function handleGetReferralCode(req, res) {
 }
 
 
-async function handleTrackReferral(req, res) {
+// POST /api/referrals/track
+router.post('/referrals/track', async (req, res) => {
     try {
         const { userId } = await getAuthenticatedUser(req);
         const { referralCode } = req.body;
@@ -223,58 +224,6 @@ async function handleTrackReferral(req, res) {
         console.error(err);
         res.status(500).json({ error: 'Internal server error' });
     }
-}
-
-// POST /api/referrals/track
-router.post('/referrals/track', handleTrackReferral);
-
-// POST /api/referrals/claim (Alias)
-router.post('/referrals/claim', handleTrackReferral);
-
-// POST /api/referrals/redeem
-router.post('/referrals/redeem', async (req, res) => {
-    try {
-        const { userId } = await getAuthenticatedUser(req);
-        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
-
-        // 1. Check Credit Balance
-        const { data: profile, error: fetchError } = await supabase
-            .from('profiles')
-            .select('credits')
-            .eq('id', userId)
-            .single();
-
-        if (fetchError || !profile) {
-            return res.status(500).json({ error: 'Failed to fetch profile' });
-        }
-
-        if (!profile.credits || profile.credits < 1) {
-            return res.status(400).json({ error: 'No credits available' });
-        }
-
-        // 2. Decrement Credit
-        const newCredits = profile.credits - 1;
-        const { error: updateError } = await supabase
-            .from('profiles')
-            .update({ credits: newCredits })
-            .eq('id', userId);
-
-        if (updateError) {
-            return res.status(500).json({ error: 'Failed to update credits' });
-        }
-
-        // 3. Grant Reward (For now, we just consume the credit. 
-        // In a real app, we might add a row to 'redemptions' or grant a pro session.
-        // Assuming 'consumption' implies usage right away or just unlocking).
-
-        console.log(`[REFERRAL] User ${userId} redeemed 1 credit. New balance: ${newCredits}`);
-
-        return res.json({ success: true, remainingCredits: newCredits });
-
-    } catch (err) {
-        console.error("Redeem error:", err);
-        res.status(500).json({ error: 'Internal server error' });
-    }
 });
 
 // GET /api/referrals/history
@@ -285,21 +234,15 @@ router.get('/referrals/history', async (req, res) => {
 
         const { data: logs, error } = await supabase
             .from('referral_logs')
-            .select('id, referred_user_id, status, created_at, profiles:referred_user_id(display_name)')
+            .select('id, referred_user_id, status, created_at') // Privacy: maybe don't show user details? User implementation plan didn't specify.
+            // Requirement: "View referral history". Usually show "User XXX" or similar.
+            // Joining to profiles to get display names of referred users would be nice.
             .eq('referrer_id', userId)
             .order('created_at', { ascending: false });
 
-        // Normalize response if needed (flatten profiles)
-        const history = logs?.map(log => ({
-            ...log,
-            referred_email: log.profiles?.display_name || 'User ' + log.referred_user_id.substring(0, 6) // fallback
-        })) || [];
-
-        return res.json({ history });
-
         if (error) return res.status(500).json({ error: 'Database error' });
 
-
+        return res.json({ history: logs });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Internal server error' });

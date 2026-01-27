@@ -265,8 +265,7 @@ router.get('/__admin/affiliate-applications/latest', async (req, res) => {
     }
 });
 
-
-
+// Debug endpoint to list env var names (no values)
 router.get('/__admin/env-vars', (req, res) => {
     const adminToken = process.env.ADMIN_TOKEN;
     const verifyKey = "temp-verify-123";

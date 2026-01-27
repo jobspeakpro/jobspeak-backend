@@ -265,7 +265,45 @@ router.get('/__admin/affiliate-applications/latest', async (req, res) => {
     }
 });
 
+// Debug: Probe sending to check verification
+router.post('/__admin/mailersend/probe', async (req, res) => {
+    const adminToken = process.env.ADMIN_TOKEN;
+    const verifyKey = "temp-verify-123";
 
+    if (req.headers['x-admin-token'] !== adminToken && req.headers['x-verify-key'] !== verifyKey) {
+        return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    const apiKey = process.env.MAILERSEND_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: 'Missing MAILERSEND_API_KEY' });
+
+    const { fromEmail = 'jobspeakpro@gmail.com' } = req.body;
+
+    try {
+        const response = await fetch('https://api.mailersend.com/v1/email', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                from: { email: fromEmail },
+                to: [{ email: 'jobspeakpro@gmail.com' }],
+                subject: 'MailerSend Probe Verification',
+                text: 'If you receive this, the sender is verified.'
+            })
+        });
+
+        const data = await response.text();
+        res.json({
+            success: response.ok,
+            status: response.status,
+            data
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
 
 router.get('/__admin/env-vars', (req, res) => {
     const adminToken = process.env.ADMIN_TOKEN;

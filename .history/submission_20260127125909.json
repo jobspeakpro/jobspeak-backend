@@ -1,0 +1,9 @@
+{
+    "name": "Production Verifier",
+    "email": "prod.verifier@example.com",
+    "country": "TestLand",
+    "primaryPlatform": "YouTube",
+    "audienceSize": "10k-50k",
+    "payoutPreference": "paypal",
+    "payoutDetails": "prod.verifier@example.com"
+}
