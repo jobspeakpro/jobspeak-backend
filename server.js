@@ -89,7 +89,7 @@ app.get("/", (req, res) => {
   res.json({
     status: "ok",
     message: "JobSpeakPro backend running",
-    version: "Full-Restore-Final-Clean",
+    version: "MailerSend-Verification-Debug",
     timestamp: new Date().toISOString()
   });
 });
