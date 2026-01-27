@@ -1,0 +1,3 @@
+file:///app/server.js:71 const PORT = process.env.PORT || 3000;
+SyntaxError: Identifier 'PORT' has already been declared
+Node v20.20.0
