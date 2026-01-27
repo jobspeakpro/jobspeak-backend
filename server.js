@@ -89,7 +89,7 @@ app.get("/", (req, res) => {
   res.json({
     status: "ok",
     message: "JobSpeakPro backend running",
-    version: "Core-Only-Restore",
+    version: "Full-Restore-Correct-URL",
     timestamp: new Date().toISOString()
   });
 });
@@ -118,9 +118,11 @@ console.log("[STARTUP] Mounting Routes...");
 app.use("/auth", authRoutes);
 app.use("/api", accountRoutes);
 app.use("/api", activityRoutes);
-// app.use("/api", aiRoutes);
-// app.use("/api", billingRoutes);
-app.use("/api", dashboardRoutes);
+app.use("/api", aiRoutes);
+app.use("/api", billingRoutes);
+app.use("/api", stripeRoutes);
+// app.use("/api", sttRoutes); // uncommenting others below
+
 app.use("/api", dailyTipRoutes);
 app.use("/api", heardAboutRoutes);
 app.use("/api", mockInterviewRoutes);
