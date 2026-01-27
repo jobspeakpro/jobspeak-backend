@@ -1,0 +1,14 @@
+{
+    "name": "Manual Curl Verification",
+    "email": "manual.verify@example.com",
+    "country": "United States",
+    "primaryPlatform": "YouTube",
+    "audienceSize": "5k-10k",
+    "payoutPreference": "paypal",
+    "payoutDetails": {
+        "email": "manual.verify@paypal.com"
+    },
+    "otherPlatformText": "Curl Test",
+    "channelLink": "http://curl-test.com",
+    "promoPlan": "Curl Plan"
+}

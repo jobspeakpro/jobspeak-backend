@@ -429,7 +429,9 @@ app.post("/__admin/migrate", async (req, res) => {
             ADD COLUMN IF NOT EXISTS payout_preference text,
             ADD COLUMN IF NOT EXISTS payout_details text,
             ADD COLUMN IF NOT EXISTS primary_platform text,
-            ADD COLUMN IF NOT EXISTS other_platform_text text;
+            ADD COLUMN IF NOT EXISTS other_platform_text text,
+            ADD COLUMN IF NOT EXISTS notification_status text,
+            ADD COLUMN IF NOT EXISTS notification_error text;
 
             -- Ensure constraint on profiles.referral_code
             ALTER TABLE profiles
