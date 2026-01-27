@@ -1,0 +1,14 @@
+HTTP/1.1 200 OK
+Access-Control-Allow-Credentials: true
+Access-Control-Expose-Headers: x-jsp-backend-commit,x-identity-used,x-identity-mode
+Content-Length: 154
+Content-Type: application/json; charset=utf-8
+Date: Tue, 27 Jan 2026 02:06:32 GMT
+Server: railway-edge
+Vary: Origin
+X-Powered-By: Express
+X-Railway-Edge: railway/us-east4-eqdc4a
+X-Railway-Request-Id: vbVpLR4TQDeAz13uozsQ6Q
+X-Request-Id: uxvy5z4mkvygnhw
+
+{"ok":true,"timestamp":"2026-01-27T02:06:32.181Z","service":"JobSpeakPro Backend","commit":"26cce693f3e5f28b489d5a26d2e79992055c6801","version":"26cce69"}
