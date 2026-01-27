@@ -1,0 +1,3 @@
+file:///app/routes/tts.js:69
+console.log(`[TTS] Auth success: Credentials written to ${ CREDENTIALS_PATH } `);
+SyntaxError: Unexpected identifier 'Auth'
