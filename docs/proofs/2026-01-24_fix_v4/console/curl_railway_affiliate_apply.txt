@@ -1,0 +1,20 @@
+HTTP/1.1 200 OK
+Access-Control-Allow-Credentials: true
+Access-Control-Allow-Origin: https://jobspeakpro.com
+Access-Control-Expose-Headers: x-jsp-backend-commit,x-identity-used,x-identity-mode
+Content-Length: 70
+Content-Type: application/json; charset=utf-8
+Date: Tue, 27 Jan 2026 02:41:01 GMT
+Server: railway-edge
+Vary: Origin
+X-Powered-By: Express
+X-Railway-Edge: railway/us-east4-eqdc4a
+X-Railway-Request-Id: DZt2t8ViR3abn9EEwoOzXw
+X-Request-Id: ccoc45qmkvzozfo
+
+{"success":true,"ok":true,"id":"bbfd7080-ae58-443f-932e-4263f8de113d"}
+
+✅ Verified Fix:
+- Handling of 'payoutDetails' object payload works correctly
+- No 500 Internal Server Error
+- x-user-key: test-railway-direct-fix-verify
