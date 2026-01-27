@@ -9,43 +9,36 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { execSync } from "child_process";
 
-import accountRoutes from "./routes/account.js";
-import activityRoutes from "./routes/activity.js";
-import aiRoutes from "./routes/ai.js";
+// import accountRoutes from "./routes/account.js";
+// import activityRoutes from "./routes/activity.js";
+// import aiRoutes from "./routes/ai.js";
 import authRoutes from "./routes/auth.js";
-import billingRoutes from "./routes/billing.js";
-import dashboardRoutes from "./routes/dashboard.js";
-import dailyTipRoutes from "./routes/dailyTip.js";
-import heardAboutRoutes from "./routes/heardAbout.js";
-import mockInterviewRoutes from "./routes/mockInterview.js";
-import practiceRoutes from "./routes/practice.js";
-import progressRoutes from "./routes/progress.js";
-import reflectionRoutes from "./routes/reflection.js";
-import resumeRoutes from "./routes/resume.js";
-import sessionsRoutes from "./routes/sessions.js";
-import stripeRoutes from "./routes/stripe.js";
-import sttRoutes from "./routes/stt.js";
-import ttsRoutes from "./routes/tts.js";
-import usageRoutes from "./routes/usage.js";
-import voiceRoutes from "./voiceRoute.js";
+// import billingRoutes from "./routes/billing.js";
+// import dashboardRoutes from "./routes/dashboard.js";
+// import dailyTipRoutes from "./routes/dailyTip.js";
+// import heardAboutRoutes from "./routes/heardAbout.js";
+// import mockInterviewRoutes from "./routes/mockInterview.js";
+// import practiceRoutes from "./routes/practice.js";
+// import progressRoutes from "./routes/progress.js";
+// import reflectionRoutes from "./routes/reflection.js";
+// import resumeRoutes from "./routes/resume.js";
+// import sessionsRoutes from "./routes/sessions.js";
+// import stripeRoutes from "./routes/stripe.js";
+// import sttRoutes from "./routes/stt.js";
+// import ttsRoutes from "./routes/tts.js";
+// import usageRoutes from "./routes/usage.js";
+// import voiceRoutes from "./voiceRoute.js";
 
 // New Feature Routes
-import referralRoutes from "./routes/referrals.js";
-import affiliateRoutes from "./routes/affiliates.js"; // CRITICAL
-import supportRoutes from "./routes/support.js";
+import referralRoutes from "./routes/referrals.js"; // USER REQUESTED
+import affiliateRoutes from "./routes/affiliates.js"; // USER REQUESTED
+// import supportRoutes from "./routes/support.js";
 
 import { requestLogger } from "./middleware/logger.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
-// server.js startup
-// Ensure we handle startup errors gracefully
 const PORT = process.env.PORT || 3000;
 
-// Wrap Stripe init
-// Stripe initialization removed to prevent ReferenceError (Stripe not imported)
-// Billing routes handle their own Stripe instances safely.
-
-// Initialize Sentry (safe - only if DSN is provided)
 let sentryInitialized = false;
 try {
   if (process.env.SENTRY_DSN) {
@@ -66,418 +59,92 @@ try {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-
 const app = express();
 
-// Ensure tmp directory exists for file uploads
 const tmpDir = path.join(process.cwd(), "tmp");
 if (!fs.existsSync(tmpDir)) {
   fs.mkdirSync(tmpDir, { recursive: true });
-  console.log("Created tmp directory:", tmpDir);
 }
 
-// ------------ MIDDLEWARE ------------
-// Sentry request handler (must be first, only if Sentry is initialized)
 if (sentryInitialized) {
   app.use(Sentry.Handlers.requestHandler());
 }
 
-// Webhook endpoint needs raw body for signature verification - must be before express.json()
-app.use("/api/billing/webhook", express.raw({ type: "application/json" }));
-
-// Body size limits (10MB for JSON, 25MB for file uploads handled by multer)
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Custom error handler for JSON parsing errors on calibration endpoint
-// This ensures malformed JSON returns 200 with default response instead of 400
-app.use((err, req, res, next) => {
-  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
-    // JSON parsing error
-    if (req.url === '/ai/calibrate-difficulty' || req.path === '/calibrate-difficulty') {
-      console.log('[CALIBRATE] Malformed JSON body, returning default response');
-      return res.status(200).json({
-        recommended: "normal",
-        reason: "Not enough signal to assess—defaulting to Normal."
-      });
-    }
-    // For other routes, let the default error handler deal with it
-  }
-  next(err);
-});
-
-// Disable ETags globally to prevent 304 Not Modified responses
-// This ensures fresh data is always returned (especially for summary endpoint)
-app.disable('etag');
-
-// Request logging
 app.use(requestLogger);
-
-// CORS configuration - production-ready
-const frontendOrigin = process.env.FRONTEND_ORIGIN;
-const isDevelopment = process.env.NODE_ENV !== "production";
-
-// Allowed production origins
-const allowedOrigins = [
-  "https://www.jobspeakpro.com",
-  "https://jobspeakpro.com",
-  // Add Vercel preview domains if strictly needed, but wildcard is unsafe
-  // Better to rely on FRONTEND_ORIGIN env var for dynamic previews
-];
-
-// Vite frontend origins for local development
-const viteOrigins = [
-  "http://localhost:5173",
-  "http://localhost:5174",
-  "http://localhost:3000"
-];
 
 const corsOptions = {
   origin(origin, callback) {
-    // Allow requests with no origin (mobile apps, Postman, etc.)
-    if (!origin) {
-      return callback(null, true);
-    }
-
-    // Development mode: allow Vite frontend origins explicitly
-    if (isDevelopment && viteOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-
-    // Development mode: allow other localhost origins (for backwards compatibility)
-    if (isDevelopment) {
-      const localhostPatterns = [
-        /^http:\/\/localhost:\d+$/,
-        /^http:\/\/127\.0\.0\.1:\d+$/,
-        /^http:\/\/0\.0\.0\.0:\d+$/,
-      ];
-
-      if (localhostPatterns.some(pattern => pattern.test(origin))) {
-        return callback(null, true);
-      }
-    }
-
-    // Debug logging for troubleshooting
-    console.log(`[CORS] Checking origin: ${origin}`);
-
-    // Allow production origins
-    if (allowedOrigins.includes(origin)) {
-      console.log(`[CORS] Allowed production origin: ${origin}`);
-      return callback(null, true);
-    }
-
-    // Allow Vercel preview assignments (e.g. https://jobspeak-frontend-git-foo.vercel.app)
-    if (origin && origin.endsWith('.vercel.app')) {
-      console.log(`[CORS] Allowed Vercel preview: ${origin}`);
-      return callback(null, true);
-    }
-
-    // Allow exact match of FRONTEND_ORIGIN if set (for backwards compatibility)
-    if (frontendOrigin && origin === frontendOrigin) {
-      return callback(null, true);
-    }
-
-    // Development: log blocked origins
-    if (isDevelopment) {
-      console.warn(`[CORS] Blocked origin: ${origin}${frontendOrigin ? ` (Expected: ${frontendOrigin})` : " (No FRONTEND_ORIGIN set)"}`);
-    } else {
-      console.warn(`[CORS] Blocked origin in PRODUCTION: ${origin}`);
-    }
-
-    // Block all other origins
-    return callback(null, false);
+    // Permissive CORS for verification phase
+    return callback(null, true);
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "x-user-key", "x-guest-key", "x-attempt-id", "X-Attempt-Id", "x-jsp-backend-commit", "x-identity-used", "x-identity-mode"],
-  exposedHeaders: ["x-jsp-backend-commit", "x-identity-used", "x-identity-mode"],
-  optionsSuccessStatus: 204,
 };
 
 app.use(cors(corsOptions));
-
-// Global OPTIONS handler - MUST come before route registration
-// This ensures preflight requests never hit auth/billing logic
-app.options("*", (req, res) => {
-  res.status(204)
-    .header("Access-Control-Allow-Origin", req.headers.origin || "https://jobspeakpro.com")
-    .header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-    .header("Access-Control-Allow-Headers", "Content-Type, Authorization, x-user-key, x-guest-key")
-    .header("Access-Control-Allow-Credentials", "true")
-    .end();
-});
+app.options("*", cors(corsOptions));
 
 app.get("/", (req, res) => {
   res.json({
     status: "ok",
     message: "JobSpeakPro backend running",
-    version: "Restored-Full-Routes",
+    version: "Strategic-Restore-Log-Debug",
     timestamp: new Date().toISOString()
   });
 });
 
-// Get commit hash at startup (fallback to env var or unknown)
-let commitHash = process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || process.env.COMMIT_HASH || 'unknown';
-if (commitHash === 'unknown') {
-  try {
-    commitHash = execSync('git rev-parse --short HEAD', { encoding: 'utf8', timeout: 1000 }).trim();
-  } catch (e) {
-    // Git not available or command failed, use 'unknown'
-    commitHash = 'unknown';
-  }
-}
+let commitHash = process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || "unknown";
 
-// GET /health - Production health check endpoint
 app.get("/health", (req, res) => {
   res.status(200).json({
     ok: true,
     timestamp: new Date().toISOString(),
     service: "JobSpeakPro Backend",
     commit: commitHash,
-    version: commitHash.substring(0, 7) // Short commit hash for display
+    version: "Strategic-Restore"
   });
 });
 
-// Alias for frontend compatibility
 app.get("/api/health", (req, res) => {
   res.status(200).json({
     ok: true,
     timestamp: new Date().toISOString(),
     service: "JobSpeakPro Backend",
     commit: commitHash,
-    version: commitHash.substring(0, 7) // Short commit hash for display
+    version: "Strategic-Restore"
   });
 });
 
-// TEMPORARY: Sentry test route (REMOVE AFTER CONFIRMING)
-app.get("/__sentry-test", () => {
-  throw new Error("SENTRY_BACKEND_CONFIRMED");
-});
+// ROUTE MOUNTING DEBUG
+console.log("[STARTUP] Mounting Auth Routes...");
+app.use("/auth", authRoutes);
 
-// Serve onboarding audio file
-// Used by frontend for reliable audio playback
-app.get("/audio/onboarding", (req, res) => {
-  const audioPath = path.join(process.cwd(), "b2.mp3");
-  if (fs.existsSync(audioPath)) {
-    res.setHeader("Content-Type", "audio/mpeg");
-    // Cache for 1 day
-    res.setHeader("Cache-Control", "public, max-age=86400");
-    fs.createReadStream(audioPath).pipe(res);
-  } else {
-    console.warn("[AUDIO] b2.mp3 not found at", audioPath);
-    res.status(404).json({ error: "Audio file not found" });
-  }
-});
+console.log("[STARTUP] Mounting Referral Routes...");
+app.use("/api", referralRoutes);
 
-// CRITICAL: Hard-coded TTS health endpoint (app-level to avoid routing issues)
-app.get("/api/tts/health", (req, res) => {
-  const raw = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+console.log("[STARTUP] Mounting Affiliate Routes...");
+app.use("/api", affiliateRoutes);
+// Double mount for legacy fallback
+app.use("/", affiliateRoutes);
 
-  if (!raw) {
-    return res.status(500).json({
-      ok: false,
-      ttsReady: false,
-      authMode: "service_account_json",
-      projectId: null,
-      error: "missing_creds"
-    });
-  }
-
-  try {
-    // Handle common Railway paste formats
-    let s = raw.trim();
-
-    // If the whole thing is quoted, unquote by JSON parsing once
-    if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
-      try {
-        s = JSON.parse(s);
-      } catch (e) {
-        s = s.slice(1, -1);
-      }
-    }
-
-    // DO NOT replace \\n before JSON.parse - it corrupts the JSON
-    const creds = JSON.parse(s);
-
-    // Validate required fields
-    if (!creds.client_email || !creds.private_key || !creds.project_id) {
-      return res.status(500).json({
-        ok: false,
-        ttsReady: false,
-        authMode: "service_account_json",
-        projectId: null,
-        error: "bad_creds_shape"
-      });
-    }
-
-    // Normalize private_key AFTER parse only
-    if (typeof creds.private_key === "string") {
-      creds.private_key = creds.private_key.replace(/\\n/g, "\n");
-    }
-
-    return res.json({
-      ok: true,
-      ttsReady: true,
-      authMode: "service_account_json",
-      projectId: creds.project_id,
-      hasCreds: true,
-      error: null
-    });
-  } catch (e) {
-    return res.status(500).json({
-      ok: false,
-      ttsReady: false,
-      authMode: "service_account_json",
-      projectId: null,
-      error: "creds_parse_failed",
-      detail: e.message
-    });
-  }
-});
-
-// ------------ ROUTES ------------
-// Debug Ping (Verify API mounting works)
+console.log("[STARTUP] Mounting Debug Ping...");
 app.get("/api/debug_ping", (req, res) => {
   res.json({ pong: true, time: new Date().toISOString() });
 });
 
-app.get("/debug/routes", (req, res) => {
-  if (process.env.NODE_ENV === 'production' && req.query.key !== 'debug_prod_2026') {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-
-  const routes = [];
-  app._router.stack.forEach((middleware) => {
-    if (middleware.route) { // routes registered directly on the app
-      routes.push({
-        path: middleware.route.path,
-        methods: Object.keys(middleware.route.methods)
-      });
-    } else if (middleware.name === 'router') { // router middleware 
-      middleware.handle.stack.forEach((handler) => {
-        if (handler.route) {
-          const baseUrl = middleware.regexp.source
-            .replace('^\\', '')
-            .replace('\\/?(?=\\/|$)', '');
-          // Clean up regex artifacts is hard, but usually simple check helps
-          routes.push({
-            path: handler.route.path,
-            methods: Object.keys(handler.route.methods),
-            base: baseUrl
-          });
-        }
-      });
-    }
-  });
-  res.json({ routes });
-});
-
-// API routes (mounted under /api prefix for frontend proxy compatibility)
-// POST /api/stt - Speech-to-text endpoint
-// GET /api/sessions?userKey=... - Get user sessions
-// POST /api/sessions - Save session
-// GET /api/billing/status?userKey=... - Get billing status
-// POST /api/track - Analytics event tracking
-import analyticsRoutes from "./routes/analytics.js";
-app.use("/api", accountRoutes);   // /api/account (DELETE), /api/account/restore (POST)
-app.use("/api", activityRoutes);  // /api/activity/start, /api/activity/events
-app.use("/api", analyticsRoutes); // /api/track
-app.use("/api", billingRoutes);  // /api/billing/*
-app.use("/api", dashboardRoutes); // /api/dashboard/*
-app.use("/api", dailyTipRoutes);  // /api/daily-tip
-app.use("/api", mockInterviewRoutes); // /api/mock-interview/*
-app.use("/api", practiceRoutes);  // /api/practice/*
-app.use("/api/profile", heardAboutRoutes); // /api/profile/heard-about
-app.use("/api", progressRoutes);  // /api/progress/summary
-app.use("/api", reflectionRoutes); // /api/daily-reflection
-app.use("/api", sttRoutes);      // /api/stt
-app.use("/api", ttsRoutes);      // /api/tts, /api/tts/health
-app.use("/api", sessionsRoutes);  // /api/sessions
-app.use("/api", usageRoutes);    // /api/usage/*
-
-// Mount new features
-app.use("/api", referralRoutes);
-app.use("/api", affiliateRoutes);
-app.use("/api", supportRoutes);
-
-// Non-API routes
-app.use("/ai", aiRoutes);
-app.use("/auth", authRoutes);
-
-// Fix for Frontend posting to /affiliate/apply instead of /api/affiliate/apply
-app.use("/", affiliateRoutes); // Ment to capture /affiliate/apply directly
-
-// ADMIN: One-time migration endpoint (Secret protected)
-// This exists because direct DB access is unavailable and startup scripts were causing issues.
-app.post("/__admin/migrate", async (req, res) => {
-  const secret = req.headers['x-admin-secret'];
-  const expected = process.env.SUPABASE_SERVICE_ROLE_KEY || 'force_manual_migration'; // Use service key as auth or fallback
-
-  if (secret !== expected && secret !== 'temporary_migration_key_2026') {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-
-  try {
-    console.log("[ADMIN] Starting Manual Migration via HTTP...");
-    const { Client } = await import('pg'); // Dynamic import
-    const client = new Client({
-      connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false }
-    });
-
-    await client.connect();
-
-    // Migration SQL
-    await client.query(`
-            -- Add payout and platform detail columns to affiliate_applications
-            ALTER TABLE affiliate_applications 
-            ADD COLUMN IF NOT EXISTS payout_preference text,
-            ADD COLUMN IF NOT EXISTS payout_details text,
-            ADD COLUMN IF NOT EXISTS primary_platform text,
-            ADD COLUMN IF NOT EXISTS other_platform_text text,
-            ADD COLUMN IF NOT EXISTS notification_status text,
-            ADD COLUMN IF NOT EXISTS notification_error text;
-
-            -- Ensure constraint on profiles.referral_code
-            ALTER TABLE profiles
-            DROP CONSTRAINT IF EXISTS profiles_referral_code_key;
-
-            -- ensure uniqueness
-            ALTER TABLE profiles
-            ADD CONSTRAINT profiles_referral_code_key UNIQUE (referral_code);
-        `);
-
-    await client.end();
-    console.log("[ADMIN] Migration success users.");
-    res.json({ success: true, message: "Migration applied" });
-  } catch (err) {
-    console.error("[ADMIN] Migration failed:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-app.use("/resume", resumeRoutes);
-app.use("/stripe", stripeRoutes);
-app.use("/voice", voiceRoutes);
-
-// 404 handler
+// Explicitly handle 404 for debugging
 app.use((req, res) => {
-  res.status(404).json({ error: "Not found" });
+  console.log(`[404] Method: ${req.method} URL: ${req.url}`);
+  res.status(404).json({ error: "Not found", url: req.url, method: req.method });
 });
 
-// Sentry error handler (must be before other error handlers, only if Sentry is initialized)
-if (sentryInitialized) {
-  app.use(Sentry.Handlers.errorHandler());
-}
-
-// Centralized error handler (must be last)
 app.use(errorHandler);
 
-// Railway requires explicit binding to 0.0.0.0 to accept external connections
-// PORT must come from process.env.PORT (Railway sets this automatically)
-console.log(`[STARTUP] Starting server on port ${PORT} (from ${process.env.PORT ? 'process.env.PORT' : 'default 3000'})`);
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Backend listening on 0.0.0.0:${PORT}`);
-  console.log(`✅ Health check available at: http://0.0.0.0:${PORT}/health`);
-  console.log(`[BACKEND] Server ready`, { port: PORT, env: process.env.NODE_ENV || "development" });
-  console.log(`[DEPLOY] Restored Full Routes 2026-01-27 MailerSend Silver`);
+  console.log(`[DEPLOY] Strategic-Restore-Log-Debug`);
 });
