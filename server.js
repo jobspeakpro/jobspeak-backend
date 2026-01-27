@@ -9,11 +9,9 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { execSync } from "child_process";
 
-// Safe Mode Imports (Proven to work)
-import authRoutes from "./routes/auth.js";
-import affiliateRoutes from "./routes/affiliates.js"; // This was present in working Safe Mode
-
-// import referralRoutes from "./routes/referrals.js"; // Commented out in Safe Mode
+// NO ROUTE IMPORTS
+// import authRoutes from "./routes/auth.js";
+// import affiliateRoutes from "./routes/affiliates.js";
 
 import { requestLogger } from "./middleware/logger.js";
 import { errorHandler } from "./middleware/errorHandler.js";
@@ -57,7 +55,7 @@ app.get("/", (req, res) => {
   res.json({
     status: "ok",
     message: "JobSpeakPro backend running",
-    version: "Safe-Mode-Restore", // Reverting to safe mode
+    version: "Super-Safe-Mode",
     timestamp: new Date().toISOString()
   });
 });
@@ -66,7 +64,7 @@ app.get("/health", (req, res) => {
   res.status(200).json({
     ok: true,
     service: "JobSpeakPro Backend",
-    version: "Safe-Mode-Restore",
+    version: "Super-Safe-Mode",
     commit: commitHash
   });
 });
@@ -75,25 +73,15 @@ app.get("/api/health", (req, res) => {
   res.status(200).json({
     ok: true,
     service: "JobSpeakPro Backend",
-    version: "Safe-Mode-Restore"
+    version: "Super-Safe-Mode"
   });
 });
 
-// MOUNT AUTH
-app.use("/auth", authRoutes);
-
-// MOUNT AFFILIATE
-app.use("/api", affiliateRoutes);
-app.use("/", affiliateRoutes);
-
-// INLINE REFERRALS STUB (The only addition to Safe Mode)
-app.get("/api/referrals/me", (req, res) => {
-  res.status(401).json({ error: "Unauthorized (Stubbed)" });
-});
+// NO ROUTES MOUNTED
 
 app.use(errorHandler);
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Backend listening on 0.0.0.0:${PORT}`);
-  console.log(`[DEPLOY] Safe-Mode-Restore`);
+  console.log(`[DEPLOY] Super-Safe-Mode`);
 });
