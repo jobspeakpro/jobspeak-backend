@@ -1,0 +1,3 @@
+ID: 7dae1b7e-7107-4363-bbd9-fd6aa0a742b6
+Status: failed
+Raw: test_payout@gmail.com | mailersend:failed:{"message":"The from.email domain must be verified in your account to send emails. #MS42207","errors@2026-01-27T19:19:46.654Z
