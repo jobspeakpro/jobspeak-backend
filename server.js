@@ -89,7 +89,7 @@ app.get("/", (req, res) => {
   res.json({
     status: "ok",
     message: "JobSpeakPro backend running",
-    version: "Full-Restore-Correct-URL",
+    version: "Full-Restore-Final-Clean",
     timestamp: new Date().toISOString()
   });
 });
@@ -120,9 +120,7 @@ app.use("/api", accountRoutes);
 app.use("/api", activityRoutes);
 app.use("/api", aiRoutes);
 app.use("/api", billingRoutes);
-app.use("/api", stripeRoutes);
-// app.use("/api", sttRoutes); // uncommenting others below
-
+app.use("/api", dashboardRoutes);
 app.use("/api", dailyTipRoutes);
 app.use("/api", heardAboutRoutes);
 app.use("/api", mockInterviewRoutes);
@@ -136,12 +134,6 @@ app.use("/api", sttRoutes);
 app.use("/api", ttsRoutes);
 app.use("/api", usageRoutes);
 // Voice routes typically mounted at root or /voice depending on legacy
-app.use("/voice", voiceRoutes);
-// Also support old path if needed, but usually it's /voice/generate
-// server.js often mounts voiceRoutes at /voice in this project?
-// Let's check: "import voiceRoutes from './voiceRoute.js';" usually app.use("/voice", voiceRoutes) or app.use("/", voiceRoutes) if the file has /voice prefix
-// Safe bet: app.use(voiceRoutes) if it defines exact paths, or check file. 
-// Step 606: router.post("/generate", ...) in voiceRoute.js. So likely app.use("/voice", ...).
 app.use("/voice", voiceRoutes);
 
 
