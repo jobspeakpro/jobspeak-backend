@@ -934,6 +934,10 @@ router.post("/billing/webhook", async (req, res) => {
       // (Stripe will retry on 500)
       res.status(500).send(`Webhook Error: ${err.message}`);
     }
-  });
+  } catch (outerErr) {
+    console.error("[WEBHOOK FATAL ERROR] Outer handler failed:", outerErr);
+    res.status(500).send("Webhook handler failed");
+  }
+});
 
 export default router;
