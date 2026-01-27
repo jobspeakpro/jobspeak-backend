@@ -1,0 +1,28 @@
+Backend Restoration Attempt Report
+Date: 2026-01-27
+Status: FAILED (Critical Environment Instability)
+
+Summary:
+The goal was to restore full backend functionality ("Restore-Full-Routes") after a previous "Safe Mode" deployment.
+Multiple restoration strategies were attempted, ranging from full code restoration to minimal "stub" servers.
+All attempts resulted in the production URL returning the default "Home of the Railway API" page, indicating that the backend process is either crashing immediately on startup or failing to build.
+
+Attempts:
+1. Full Restore: Enabled all routes. Result: Crash.
+2. Safe Mode Restore: Reverted to previously known working state (Auth/Affiliate enabled). Result: Crash.
+3. Stub Restore: Deployed minimal server with inline verification stubs. Result: Crash.
+4. Raw Node Server: Deployed dependency-free Node.js server. Result: Crash.
+5. Super Safe Mode: Health endpoint only. Result: Crash.
+
+Diagnosis:
+- The persistent failure across all code variations (including "Raw Node") strongly suggests a platform-level issue (e.g., Build Process failure, Node version mismatch, or corrupted environment) rather than a code syntax issue.
+- Without access to Railway logs (via CLI or Dashboard), the specific start-up error cannot be identified.
+
+Impact:
+- Backend endpoints (/health, /api/affiliate/apply, /api/referrals/me) are inaccessible.
+- Verification proofs could not be generated as the server is unreachable.
+
+Recommendation:
+- Check Railway "Deployments" and "Build Logs" for error messages.
+- Verify `package.json` "start" script and Node version compatibility.
+- Ensure environment variables (STRIPE_SECRET_KEY, etc.) are correctly set in Railway settings.
