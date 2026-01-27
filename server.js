@@ -209,7 +209,12 @@ app.options("*", (req, res) => {
 });
 
 app.get("/", (req, res) => {
-  res.json({ status: "ok", message: "JobSpeakPro backend running" });
+  res.json({
+    status: "ok",
+    message: "JobSpeakPro backend running",
+    version: "MailerSend-Silver-Final",
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Get commit hash at startup (fallback to env var or unknown)
