@@ -52,10 +52,15 @@ router.post('/affiliate/apply', async (req, res) => {
         if (!payoutPreference) errors.payoutPreference = "Required";
 
         // Payout details validation based on preference
-        if (payoutPreference === 'paypal' && (!payoutDetails || !payoutDetails.includes('@'))) {
+        // Handle both string and object formats from frontend
+        const payoutEmail = typeof payoutDetails === 'object' && payoutDetails?.email
+            ? payoutDetails.email
+            : payoutDetails;
+
+        if (payoutPreference === 'paypal' && (!payoutEmail || !payoutEmail.includes('@'))) {
             errors.payoutDetails = "Valid PayPal email required";
         }
-        if (payoutPreference === 'stripe' && (!payoutDetails || !payoutDetails.includes('@'))) {
+        if (payoutPreference === 'stripe' && (!payoutEmail || !payoutEmail.includes('@'))) {
             errors.payoutDetails = "Valid Stripe email required";
         }
         if (payoutPreference === 'crypto' && !payoutDetails) {
