@@ -265,7 +265,35 @@ router.get('/__admin/affiliate-applications/latest', async (req, res) => {
     }
 });
 
-// Debug endpoint to list env var names (no values)
+// Debug: Check MailerSend Identities/Domains using server env var
+router.get('/__admin/mailersend/identities', async (req, res) => {
+    const adminToken = process.env.ADMIN_TOKEN;
+    const verifyKey = "temp-verify-123";
+
+    if (req.headers['x-admin-token'] !== adminToken && req.headers['x-verify-key'] !== verifyKey) {
+        return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    const apiKey = process.env.MAILERSEND_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: 'Missing MAILERSEND_API_KEY' });
+
+    try {
+        // Fetch Domains (Standard verification)
+        const domainResponse = await fetch('https://api.mailersend.com/v1/domains', {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${apiKey}` }
+        });
+        const domainData = await domainResponse.json();
+
+        res.json({
+            success: true,
+            domains: domainData
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 router.get('/__admin/env-vars', (req, res) => {
     const adminToken = process.env.ADMIN_TOKEN;
     const verifyKey = "temp-verify-123";
