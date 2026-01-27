@@ -475,11 +475,13 @@ router.get("/billing/status", async (req, res) => {
 router.post("/billing/webhook", async (req, res) => {
   try {
     const stripe = await getStripe();
+    const timestamp = new Date().toISOString();
     const sig = req.headers["stripe-signature"];
 
     // Log webhook receipt
     console.log(`[WEBHOOK RECEIPT] ${timestamp} - Received webhook request`);
     console.log(`[WEBHOOK RECEIPT] Signature present: ${!!sig}`);
+
 
     // Validate webhook secret env var - no fallback
     if (!process.env.STRIPE_WEBHOOK_SECRET) {
