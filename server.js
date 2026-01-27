@@ -9,18 +9,38 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { execSync } from "child_process";
 
-// Core Routes (Restored)
+// --- ROUTES ---
+import accountRoutes from "./routes/account.js";
+import activityRoutes from "./routes/activity.js";
+import aiRoutes from "./routes/ai.js";
 import authRoutes from "./routes/auth.js";
-import affiliateRoutes from "./routes/affiliates.js"; // Fixed import
-import referralRoutes from "./routes/referrals.js"; // Fixed import
+import billingRoutes from "./routes/billing.js";
+import dashboardRoutes from "./routes/dashboard.js";
+import dailyTipRoutes from "./routes/dailyTip.js";
+import heardAboutRoutes from "./routes/heardAbout.js";
+import mockInterviewRoutes from "./routes/mockInterview.js";
+import practiceRoutes from "./routes/practice.js";
+import progressRoutes from "./routes/progress.js";
+import reflectionRoutes from "./routes/reflection.js";
+import resumeRoutes from "./routes/resume.js";
+import sessionsRoutes from "./routes/sessions.js";
+import stripeRoutes from "./routes/stripe.js";
+import sttRoutes from "./routes/stt.js";
+import ttsRoutes from "./routes/tts.js";
+import usageRoutes from "./routes/usage.js";
+import voiceRoutes from "./voiceRoute.js";
 
-// Middleware
+// -- NEW FEATURE ROUTES --
+import referralRoutes from "./routes/referrals.js";
+import affiliateRoutes from "./routes/affiliates.js";
+import supportRoutes from "./routes/support.js";
+
 import { requestLogger } from "./middleware/logger.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
 const PORT = process.env.PORT || 3000;
 
-// Sentry Initialization
+// Initialize Sentry
 let sentryInitialized = false;
 try {
   if (process.env.SENTRY_DSN) {
@@ -50,22 +70,26 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(requestLogger);
 
-// Permissive CORS for broad compatibility
-app.use(cors({
-  origin(origin, callback) { return callback(null, true); },
+// CORS
+const corsOptions = {
+  origin(origin, callback) {
+    return callback(null, true);
+  },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-user-key", "x-guest-key"],
-}));
+  allowedHeaders: ["Content-Type", "Authorization", "x-user-key", "x-guest-key", "x-attempt-id", "X-Attempt-Id", "x-jsp-backend-commit", "x-identity-used", "x-identity-mode"],
+};
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 
 let commitHash = process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || "unknown";
 
-// Root and Health Endpoints
+// Root/Health
 app.get("/", (req, res) => {
   res.json({
     status: "ok",
     message: "JobSpeakPro backend running",
-    version: "Production-Restored-Fix",
+    version: "Full-Restore-Final",
     timestamp: new Date().toISOString()
   });
 });
@@ -73,37 +97,64 @@ app.get("/", (req, res) => {
 app.get("/health", (req, res) => {
   res.status(200).json({
     ok: true,
+    timestamp: new Date().toISOString(),
     service: "JobSpeakPro Backend",
-    version: "Production-Restored-Fix",
-    commit: commitHash
+    commit: commitHash,
+    version: "Full-Restore-Final"
   });
 });
 
 app.get("/api/health", (req, res) => {
   res.status(200).json({
     ok: true,
+    timestamp: new Date().toISOString(),
     service: "JobSpeakPro Backend",
-    version: "Production-Restored-Fix"
+    version: "Full-Restore-Final"
   });
 });
 
-// Route Mounting
-console.log("[STARTUP] Mounting Auth Routes...");
+// MOUNT ROUTES
+console.log("[STARTUP] Mounting Routes...");
 app.use("/auth", authRoutes);
+app.use("/api", accountRoutes);
+app.use("/api", activityRoutes);
+app.use("/api", aiRoutes);
+app.use("/api", billingRoutes);
+app.use("/api", dashboardRoutes);
+app.use("/api", dailyTipRoutes);
+app.use("/api", heardAboutRoutes);
+app.use("/api", mockInterviewRoutes);
+app.use("/api", practiceRoutes);
+app.use("/api", progressRoutes);
+app.use("/api", reflectionRoutes);
+app.use("/api", resumeRoutes);
+app.use("/api", sessionsRoutes);
+app.use("/api", stripeRoutes);
+app.use("/api", sttRoutes);
+app.use("/api", ttsRoutes);
+app.use("/api", usageRoutes);
+// Voice routes typically mounted at root or /voice depending on legacy
+app.use("/voice", voiceRoutes);
+// Also support old path if needed, but usually it's /voice/generate
+// server.js often mounts voiceRoutes at /voice in this project?
+// Let's check: "import voiceRoutes from './voiceRoute.js';" usually app.use("/voice", voiceRoutes) or app.use("/", voiceRoutes) if the file has /voice prefix
+// Safe bet: app.use(voiceRoutes) if it defines exact paths, or check file. 
+// Step 606: router.post("/generate", ...) in voiceRoute.js. So likely app.use("/voice", ...).
+app.use("/voice", voiceRoutes);
 
-console.log("[STARTUP] Mounting Affiliate Routes...");
-app.use("/api", affiliateRoutes);
-// Fallback for root access (if some clients use /affiliate/apply directly without /api)
-app.use("/", affiliateRoutes);
 
-console.log("[STARTUP] Mounting Referral Routes...");
+// NEW ROUTES
 app.use("/api", referralRoutes);
+app.use("/api", affiliateRoutes);
+app.use("/api", supportRoutes);
 
-// Error Handler
+// Helper for direct access if needed
+app.use("/", affiliateRoutes); // For /affiliate/apply direct access
+
+// Error handling
 app.use(errorHandler);
 
-// Listen
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Backend listening on 0.0.0.0:${PORT}`);
-  console.log(`[DEPLOY] Production-Restored-Fix`);
+  console.log(`[DEPLOY] Full-Restore-Final`);
 });
