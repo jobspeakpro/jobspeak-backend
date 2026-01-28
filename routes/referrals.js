@@ -3,8 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase.js';
 import { getAuthenticatedUser } from '../middleware/auth.js';
 import crypto from 'crypto';
-import dotenv from 'dotenv';
-dotenv.config();
+
 
 const router = express.Router();
 
