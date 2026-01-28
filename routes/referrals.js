@@ -11,14 +11,14 @@ function generateReferralCode() {
 
 export async function processReferralAction(userId) {
     try {
-        const { data: referralLog } = await supabase
+        const { data: referralLog, error } = await supabase
             .from('referral_logs')
             .select('*')
             .eq('referred_user_id', userId)
             .eq('status', 'pending')
             .single();
 
-        if (!referralLog) return;
+        if (error || !referralLog) return;
 
         const referrerId = referralLog.referrer_id;
 
@@ -76,6 +76,7 @@ async function handleGetReferralCode(req, res) {
 
         return res.json({ code: updated?.referral_code || newCode, referralCode: updated?.referral_code || newCode, inviteUrl: `https://jobspeakpro.com/?ref=${updated?.referral_code || newCode}` });
     } catch (err) {
+        console.error("GetReferralCode Error:", err);
         res.status(500).json({ error: 'Internal server error' });
     }
 }
@@ -87,26 +88,42 @@ async function handleTrackReferral(req, res) {
     try {
         const { userId } = await getAuthenticatedUser(req);
         const { referralCode } = req.body;
+        console.log(`[REFERRAL] Track request by ${userId} for code ${referralCode}`);
+
         if (!userId) return res.status(401).json({ error: 'Unauthorized' });
         if (!referralCode) return res.status(400).json({ error: 'Referral code required' });
 
-        const { data: referrer } = await supabase.from('profiles').select('id').eq('referral_code', referralCode).single();
-        if (!referrer) return res.status(404).json({ error: 'Invalid referral code' });
-        if (referrer.id === userId) return res.status(400).json({ error: 'Cannot refer yourself' });
+        const { data: referrer, error: referrerError } = await supabase.from('profiles').select('id').eq('referral_code', referralCode).single();
 
+        if (referrerError || !referrer) {
+            console.warn(`[REFERRAL] Invalid code: ${referralCode}`);
+            return res.status(404).json({ error: 'Invalid referral code' });
+        }
+
+        if (referrer.id === userId) {
+            return res.status(400).json({ error: 'Cannot refer yourself' });
+        }
+
+        // Removed 'referrer_user_id' which does not exist
         const { error: logError } = await supabase.from('referral_logs').insert({
             referrer_id: referrer.id,
-            referrer_user_id: referrer.id,
             referred_user_id: userId,
             status: 'pending'
         });
 
-        if (logError && logError.code === '23505') return res.json({ message: 'Already referred', referrerId: referrer.id });
+        if (logError) {
+            console.error('[REFERRAL] Insert error:', logError);
+            if (logError.code === '23505') {
+                return res.json({ message: 'Already referred', referrerId: referrer.id });
+            }
+            return res.status(500).json({ error: 'Database insert failed', details: logError.message });
+        }
 
         await supabase.from('profiles').update({ referred_by: referrer.id }).eq('id', userId);
         return res.json({ success: true, referrerId: referrer.id });
 
     } catch (err) {
+        console.error('[REFERRAL] Crash:', err);
         res.status(500).json({ error: 'Internal server error' });
     }
 }
@@ -119,11 +136,16 @@ router.get('/referrals/history', async (req, res) => {
         const { userId } = await getAuthenticatedUser(req);
         if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-        const { data: logs } = await supabase
+        const { data: logs, error } = await supabase
             .from('referral_logs')
             .select('id, referred_user_id, status, created_at, profiles:referred_user_id(display_name)')
             .eq('referrer_id', userId)
             .order('created_at', { ascending: false });
+
+        if (error) {
+            console.error('[REFERRAL] History error:', error);
+            throw error;
+        }
 
         const history = logs?.map(log => ({
             ...log,
@@ -132,6 +154,7 @@ router.get('/referrals/history', async (req, res) => {
 
         return res.json({ history });
     } catch (err) {
+        console.error('[REFERRAL] History crash:', err);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
@@ -147,6 +170,7 @@ router.post('/referrals/redeem', async (req, res) => {
         await supabase.from('profiles').update({ credits: (profile.credits - 1) }).eq('id', userId);
         return res.json({ success: true, credits: profile.credits - 1 });
     } catch (err) {
+        console.error(err);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
