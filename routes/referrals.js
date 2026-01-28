@@ -11,6 +11,33 @@ function generateReferralCode() {
     return 'REF-' + crypto.randomBytes(4).toString('hex').toUpperCase();
 }
 
+// RESTORED: Exported function for use in other modules (mockInterview.js)
+export async function processReferralAction(userId) {
+    try {
+        console.log(`[REFERRAL] Processing action for ${userId}`);
+        // Logic to convert pending referral to completed
+        // 1. Check for pending log
+        const { data: log } = await supabase.from('referral_logs')
+            .select('*')
+            .eq('referred_user_id', userId)
+            .eq('status', 'pending')
+            .single();
+
+        if (log) {
+            // 2. Award credit to referrer
+            const { data: referrer } = await supabase.from('profiles').select('credits').eq('id', log.referrer_id).single();
+            if (referrer) {
+                await supabase.from('profiles').update({ credits: (referrer.credits || 0) + 1 }).eq('id', log.referrer_id);
+            }
+            // 3. Mark log converted
+            await supabase.from('referral_logs').update({ status: 'converted' }).eq('id', log.id);
+            console.log(`[REFERRAL] Converted referral ${log.id}`);
+        }
+    } catch (err) {
+        console.error('[REFERRAL] Process error:', err);
+    }
+}
+
 async function handleGetReferralCode(req, res) {
     try {
         const { userId } = await getAuthenticatedUser(req);
@@ -70,7 +97,6 @@ async function handleTrackReferral(req, res) {
             return res.status(400).json({ error: 'Cannot refer yourself' });
         }
 
-        // RESTORED: 'referrer_user_id' is NOT NULL in DB schema
         const { data: newLog, error: logError } = await supabase.from('referral_logs').insert({
             referrer_id: referrer.id, // Primary referrer link
             referrer_user_id: referrer.id, // Required legacy column
@@ -118,11 +144,9 @@ router.get('/referrals/history', async (req, res) => {
         if (authHeader && authHeader.startsWith('Bearer ')) {
             const token = authHeader.substring(7);
             const supabaseUrl = process.env.SUPABASE_URL;
-            // Use Anon Key (public key) + Token for RLS
             const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
 
             if (supabaseUrl && supabaseAnonKey) {
-                // IMPORTANT: 'global' headers is how we pass the token
                 supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
                     global: { headers: { Authorization: `Bearer ${token}` } }
                 });
@@ -137,7 +161,6 @@ router.get('/referrals/history', async (req, res) => {
 
         if (error) {
             console.error('[REFERRAL] History error:', error);
-            // Don't throw, just return error to client for debugging
             return res.status(500).json({ error: 'History fetch failed', details: error.message });
         }
 
