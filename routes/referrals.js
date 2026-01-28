@@ -1,110 +1,15 @@
+
 import express from 'express';
 import { createClient } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase.js';
 import { getAuthenticatedUser } from '../middleware/auth.js';
 import crypto from 'crypto';
 
-
 const router = express.Router();
-
-// Static flag for one-time use constraint
-let seedUsed = false;
 
 function generateReferralCode() {
     return 'REF-' + crypto.randomBytes(4).toString('hex').toUpperCase();
 }
-
-// TEMP: Admin only seed endpoint
-router.post('/referrals/seed-test', async (req, res) => {
-    try {
-        const seedKey = req.headers['x-seed-key'];
-        // SECURITY: Only read from Environment Variable. No fallback.
-        const envSeedKey = process.env.SEED_KEY;
-
-        if (!envSeedKey || seedKey !== envSeedKey) {
-            console.warn('[SEED] Unauthorized attempt - Missing or Invalid Key');
-            return res.status(403).json({ error: 'Forbidden' });
-        }
-
-        if (seedUsed) {
-            return res.status(410).json({ error: 'Seed already used' });
-        }
-
-        // Disable immediately
-        seedUsed = true;
-
-        const ts = Date.now();
-        const referrerEmail = `seed_owner_${ts}@test.com`;
-        const password = 'Password123!';
-
-        // 1. Create Referrer (Confirmed)
-        const { data: referrerUser, error: refError } = await supabase.auth.admin.createUser({
-            email: referrerEmail,
-            password: password,
-            email_confirm: true,
-            user_metadata: { display_name: 'Seed Referrer' }
-        });
-
-        if (refError || !referrerUser.user) {
-            seedUsed = false; // Re-enable on failure
-            return res.status(500).json({ error: 'Failed to create referrer', details: refError });
-        }
-
-        const referrerId = referrerUser.user.id;
-
-        // Generate Code for Referrer
-        const referralCode = generateReferralCode();
-        await supabase.from('profiles').update({ referral_code: referralCode }).eq('id', referrerId);
-
-        // 2. Create 3 Referees and Logs
-        const referees = [];
-        const logs = [];
-
-        for (let i = 1; i <= 3; i++) {
-            const refereeEmail = `seed_referee_${i}_${ts}@test.com`;
-            const { data: refereeUser, error: refereeError } = await supabase.auth.admin.createUser({
-                email: refereeEmail,
-                password: password,
-                email_confirm: true,
-                user_metadata: { display_name: `Seed Referee ${i}` }
-            });
-
-            if (refereeError || !refereeUser.user) continue;
-
-            referees.push({ email: refereeEmail, password });
-
-            // Create Log
-            const { data: log, error: logError } = await supabase.from('referral_logs').insert({
-                referrer_id: referrerId,
-                referrer_user_id: referrerId,
-                referred_user_id: refereeUser.user.id,
-                referral_code: referralCode,
-                status: 'converted', // Completed/Qualified
-                created_at: new Date().toISOString()
-            }).select().single();
-
-            if (log) logs.push(log);
-
-            // Link Profile
-            await supabase.from('profiles').update({ referred_by: referrerId }).eq('id', refereeUser.user.id);
-        }
-
-        // Update Credits
-        await supabase.from('profiles').update({ credits: logs.length }).eq('id', referrerId);
-
-        return res.json({
-            success: true,
-            referrer: { email: referrerEmail, password, referral_code: referralCode },
-            referees: referees,
-            logs_created: logs.length
-        });
-
-    } catch (err) {
-        console.error('[SEED] Error:', err);
-        seedUsed = false; // Re-enable on crash
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
 
 async function handleGetReferralCode(req, res) {
     try {
@@ -154,7 +59,7 @@ async function handleTrackReferral(req, res) {
         if (!userId) return res.status(401).json({ error: 'Unauthorized' });
         if (!referralCode) return res.status(400).json({ error: 'Referral code required' });
 
-        const { data: referrer, error: referrerError } = await supabase.from('profiles').select('id, referral_code').eq('referral_code', referralCode).single();
+        const { data: referrer, error: referrerError } = await supabase.from('profiles').select('id').eq('referral_code', referralCode).single();
 
         if (referrerError || !referrer) {
             console.warn(`[REFERRAL] Invalid code: ${referralCode}`);
@@ -165,11 +70,11 @@ async function handleTrackReferral(req, res) {
             return res.status(400).json({ error: 'Cannot refer yourself' });
         }
 
+        // RESTORED: 'referrer_user_id' is NOT NULL in DB schema
         const { data: newLog, error: logError } = await supabase.from('referral_logs').insert({
-            referrer_id: referrer.id,
-            referrer_user_id: referrer.id,
+            referrer_id: referrer.id, // Primary referrer link
+            referrer_user_id: referrer.id, // Required legacy column
             referred_user_id: userId,
-            referral_code: referralCode,
             status: 'pending'
         })
             .select('id, created_at, status')
@@ -206,15 +111,18 @@ router.get('/referrals/history', async (req, res) => {
         const { userId } = await getAuthenticatedUser(req);
         if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
+        // RLS-COMPLIANCE: Use user's token if available
         let supabaseClient = supabase;
 
         const authHeader = req.headers.authorization;
         if (authHeader && authHeader.startsWith('Bearer ')) {
             const token = authHeader.substring(7);
             const supabaseUrl = process.env.SUPABASE_URL;
+            // Use Anon Key (public key) + Token for RLS
             const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
 
             if (supabaseUrl && supabaseAnonKey) {
+                // IMPORTANT: 'global' headers is how we pass the token
                 supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
                     global: { headers: { Authorization: `Bearer ${token}` } }
                 });
@@ -229,6 +137,7 @@ router.get('/referrals/history', async (req, res) => {
 
         if (error) {
             console.error('[REFERRAL] History error:', error);
+            // Don't throw, just return error to client for debugging
             return res.status(500).json({ error: 'History fetch failed', details: error.message });
         }
 
