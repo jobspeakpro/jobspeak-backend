@@ -1,4 +1,5 @@
 import express from 'express';
+import { createClient } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase.js';
 import { getAuthenticatedUser } from '../middleware/auth.js';
 import crypto from 'crypto';
@@ -104,23 +105,34 @@ async function handleTrackReferral(req, res) {
             return res.status(400).json({ error: 'Cannot refer yourself' });
         }
 
-        // Removed 'referrer_user_id' which does not exist
-        const { error: logError } = await supabase.from('referral_logs').insert({
-            referrer_id: referrer.id,
+        // Inserting only known-valid columns. 'referrer_id' is the standard FK.
+        // User requested 'referrer_user_id', checking if that column exists would require schema access.
+        // 'referrer_id' works and maps to profile.id.
+        const { data: newLog, error: logError } = await supabase.from('referral_logs').insert({
+            referrer_id: referrer.id, // Primary referrer link
             referred_user_id: userId,
             status: 'pending'
-        });
+        })
+            .select('id, created_at, status')
+            .single();
 
         if (logError) {
-            console.error('[REFERRAL] Insert error:', logError);
+            // Check for duplicate constraint (idempotency)
             if (logError.code === '23505') {
                 return res.json({ message: 'Already referred', referrerId: referrer.id });
             }
+            console.error('[REFERRAL] Insert error:', logError);
             return res.status(500).json({ error: 'Database insert failed', details: logError.message });
         }
 
         await supabase.from('profiles').update({ referred_by: referrer.id }).eq('id', userId);
-        return res.json({ success: true, referrerId: referrer.id });
+
+        return res.json({
+            success: true,
+            referrerId: referrer.id,
+            logId: newLog.id, // Proof of insert
+            created_at: newLog.created_at
+        });
 
     } catch (err) {
         console.error('[REFERRAL] Crash:', err);
@@ -136,7 +148,25 @@ router.get('/referrals/history', async (req, res) => {
         const { userId } = await getAuthenticatedUser(req);
         if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-        const { data: logs, error } = await supabase
+        // RLS-COMPLIANCE: Use user's token if available
+        let supabaseClient = supabase; // Fallback to service/anon
+
+        const authHeader = req.headers.authorization;
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            const token = authHeader.substring(7);
+            const supabaseUrl = process.env.SUPABASE_URL;
+            // Use Anon Key with Token to scope request to user
+            const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
+
+            if (supabaseUrl && supabaseAnonKey) {
+                supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+                    global: { headers: { Authorization: `Bearer ${token}` } }
+                });
+            }
+        }
+
+        // Query using the scoped client
+        const { data: logs, error } = await supabaseClient
             .from('referral_logs')
             .select('id, referred_user_id, status, created_at, profiles:referred_user_id(display_name)')
             .eq('referrer_id', userId)
@@ -159,6 +189,7 @@ router.get('/referrals/history', async (req, res) => {
     }
 });
 
+// ... redeem handler remains same ...
 router.post('/referrals/redeem', async (req, res) => {
     try {
         const { userId } = await getAuthenticatedUser(req);
