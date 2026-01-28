@@ -19,11 +19,11 @@ function generateReferralCode() {
 router.post('/referrals/seed-test', async (req, res) => {
     try {
         const seedKey = req.headers['x-seed-key'];
-        // Fallback key allows verifying functionality without Railway Dashboard access
-        const envSeedKey = process.env.SEED_KEY || 'temp-secret-seed-2026';
+        // SECURITY: Only read from Environment Variable. No fallback.
+        const envSeedKey = process.env.SEED_KEY;
 
-        if (!seedKey || seedKey !== envSeedKey) {
-            console.warn('[SEED] Unauthorized attempt');
+        if (!envSeedKey || seedKey !== envSeedKey) {
+            console.warn('[SEED] Unauthorized attempt - Missing or Invalid Key');
             return res.status(403).json({ error: 'Forbidden' });
         }
 
@@ -155,7 +155,6 @@ async function handleTrackReferral(req, res) {
         if (!userId) return res.status(401).json({ error: 'Unauthorized' });
         if (!referralCode) return res.status(400).json({ error: 'Referral code required' });
 
-        // Select 'id' AND 'referral_code' to ensure we have data for insert
         const { data: referrer, error: referrerError } = await supabase.from('profiles').select('id, referral_code').eq('referral_code', referralCode).single();
 
         if (referrerError || !referrer) {
@@ -167,7 +166,6 @@ async function handleTrackReferral(req, res) {
             return res.status(400).json({ error: 'Cannot refer yourself' });
         }
 
-        // Inserting ALL columns required by schema/user
         const { data: newLog, error: logError } = await supabase.from('referral_logs').insert({
             referrer_id: referrer.id,
             referrer_user_id: referrer.id,
@@ -209,7 +207,6 @@ router.get('/referrals/history', async (req, res) => {
         const { userId } = await getAuthenticatedUser(req);
         if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-        // RLS-COMPLIANCE: Use user's token if available
         let supabaseClient = supabase;
 
         const authHeader = req.headers.authorization;
@@ -219,7 +216,6 @@ router.get('/referrals/history', async (req, res) => {
             const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
 
             if (supabaseUrl && supabaseAnonKey) {
-                // Pass token in headers for RLS
                 supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
                     global: { headers: { Authorization: `Bearer ${token}` } }
                 });
