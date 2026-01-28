@@ -1,23 +1,25 @@
 import express from 'express';
-import { supabase } from '../services/supabase.js'; // Keep original supabase import for now, but the new code redefines it.
+import { supabase } from '../services/supabase.js';
 import { getAuthenticatedUser } from '../middleware/auth.js';
-// import { Resend } from 'resend'; // Dynamic
+import { Resend } from 'resend';
 
 const router = express.Router();
 
 /**
- * Helper: Send notification via MailerSend
+ * Helper: Send notification via Resend
  * Best-effort: failures are logged but do not throw
  */
 async function sendAffiliateNotification(data) {
-    const apiKey = process.env.MAILERSEND_API_KEY;
-    const notifyEmail = process.env.AFFILIATE_NOTIFY_EMAIL;
-    const fromEmail = process.env.MAILERSEND_FROM_EMAIL; // Strict usage, no hardcoded fallback
+    const apiKey = process.env.RESEND_API_KEY;
+    const adminEmail = process.env.ADMIN_EMAIL || 'jobspeakpro@gmail.com';
+    const fromEmail = process.env.RESEND_FROM_EMAIL;
 
-    if (!apiKey || !notifyEmail || !fromEmail) {
-        console.warn('[MailerSend] Skipped: Missing MAILERSEND_API_KEY, AFFILIATE_NOTIFY_EMAIL, or MAILERSEND_FROM_EMAIL');
+    if (!apiKey || !fromEmail) {
+        console.warn('[Resend] Skipped: Missing RESEND_API_KEY or RESEND_FROM_EMAIL');
         return { skipped: true, reason: 'Missing env vars' };
     }
+
+    const resend = new Resend(apiKey);
 
     const {
         name,
@@ -46,43 +48,28 @@ Timestamp: ${created_at}
     `.trim();
 
     try {
-        const response = await fetch('https://api.mailersend.com/v1/email', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-            },
-            body: JSON.stringify({
-                from: { email: fromEmail },
-                to: [{ email: notifyEmail }],
-                subject: 'New Affiliate Application',
-                text: textBody
-            })
+        const { data: emailData, error } = await resend.emails.send({
+            from: fromEmail,
+            to: adminEmail,
+            subject: 'New Affiliate Application',
+            text: textBody
         });
 
-        if (!response.ok) {
-            const errText = await response.text();
-            console.error(`[MailerSend] Error ${response.status}: ${errText}`);
-            return { error: true, status: response.status, message: errText };
-        } else {
-            const successData = await response.text(); // 202 Accepted usually has empty body or id
-            console.log(`[MailerSend] Notification sent to ${notifyEmail} (Status: ${response.status})`);
-            return { success: true, status: response.status, data: successData };
+        if (error) {
+            console.error('[Resend] Error:', error);
+            return { error: true, message: error.message };
         }
+
+        console.log(`[Resend] Notification sent to ${adminEmail} (ID: ${emailData?.id})`);
+        return { success: true, id: emailData?.id };
+
     } catch (error) {
-        console.error('[MailerSend] Network/Fetch Error:', error.message);
+        console.error('[Resend] Unexpected Error:', error);
         return { error: true, message: error.message };
     }
 }
 
-// The original file had a different supabase initialization.
-// Assuming the user intends to use the imported 'supabase' from '../services/supabase.js'
-// and not redefine it with createClient here, as that would be a breaking change
-// to the existing service pattern.
-// If the user intended to replace the supabase import, they should have provided that.
-// For now, we'll use the existing 'supabase' object.
-
-router.post('/affiliate/apply', async (req, res) => { // Changed path back to original '/affiliate/apply'
+router.post('/affiliate/apply', async (req, res) => {
     try {
         // Optional auth (guests can apply)
         const { userId } = await getAuthenticatedUser(req);
@@ -92,24 +79,24 @@ router.post('/affiliate/apply', async (req, res) => { // Changed path back to or
             email,
             country,
             primaryPlatform,
-            otherPlatformText, // Changed from 'otherPlatform' to 'otherPlatformText' to match original
+            otherPlatformText,
             audienceSize,
-            channelLink, // Added from original
-            promoPlan, // Added from original
+            channelLink,
+            promoPlan,
             payoutPreference,
             payoutDetails
         } = req.body;
 
         // Validation
         const errors = {};
-        if (!name) errors.name = "Required"; // Changed message to match original
-        if (!email) errors.email = "Required"; // Changed message to match original
-        if (!country) errors.country = "Required"; // Changed message to match original
-        if (!primaryPlatform) errors.primaryPlatform = "Required"; // Changed message to match original
-        if (!audienceSize) errors.audienceSize = "Required"; // Changed message to match original
-        if (!payoutPreference) errors.payoutPreference = "Required"; // Changed message to match original
+        if (!name) errors.name = "Required";
+        if (!email) errors.email = "Required";
+        if (!country) errors.country = "Required";
+        if (!primaryPlatform) errors.primaryPlatform = "Required";
+        if (!audienceSize) errors.audienceSize = "Required";
+        if (!payoutPreference) errors.payoutPreference = "Required";
 
-        // Payout details validation based on preference (retained original logic)
+        // Payout details validation
         const payoutEmail = typeof payoutDetails === 'object' && payoutDetails?.email
             ? payoutDetails.email
             : payoutDetails;
@@ -128,7 +115,7 @@ router.post('/affiliate/apply', async (req, res) => { // Changed path back to or
             return res.status(400).json({
                 success: false,
                 error: "validation_failed",
-                errors // FE expects { errors: { field: "msg" } }
+                errors
             });
         }
 
@@ -136,7 +123,7 @@ router.post('/affiliate/apply', async (req, res) => { // Changed path back to or
             ? JSON.stringify(payoutDetails)
             : payoutDetails;
 
-        // Insert into Supabase (retained original column names and structure)
+        // Insert into Supabase
         const { data: application, error: dbError } = await supabase
             .from('affiliate_applications')
             .insert({
@@ -145,10 +132,10 @@ router.post('/affiliate/apply', async (req, res) => { // Changed path back to or
                 email,
                 country,
                 primary_platform: primaryPlatform,
-                other_platform_text: otherPlatformText, // Changed from 'other_platform' to 'other_platform_text'
+                other_platform_text: otherPlatformText,
                 audience_size: audienceSize,
-                channel_link: channelLink, // Added from original
-                promo_plan: promoPlan, // Added from original
+                channel_link: channelLink,
+                promo_plan: promoPlan,
                 payout_preference: payoutPreference,
                 payout_details: payoutDetailsString,
                 status: 'pending'
@@ -163,26 +150,29 @@ router.post('/affiliate/apply', async (req, res) => { // Changed path back to or
 
         console.log(`Affiliate application created: ${application.id}`);
 
-        // Send notification via MailerSend (or skip if missing keys)
-        const emailResult = await sendAffiliateNotification(application);
+        // Send notification via Resend
+        let emailResult = null;
+        try {
+            emailResult = await sendAffiliateNotification(application);
+        } catch (e) {
+            console.error("Email sending crashed:", e);
+        }
 
-        // Update DB with notification status (Zero-migration strategy: Update payout_details)
+        // Update DB with notification status (Zero-migration strategy)
         if (emailResult) {
             let statusSuffix = '';
             const timestamp = new Date().toISOString();
 
             if (emailResult.skipped) {
-                statusSuffix = `| mailersend:skipped:${emailResult.reason}`;
+                statusSuffix = `| resend:skipped:${emailResult.reason}`;
             } else if (emailResult.success) {
-                statusSuffix = `| mailersend:sent@${timestamp}`;
+                statusSuffix = `| resend:sent@${timestamp} id:${emailResult.id}`;
             } else if (emailResult.error) {
-                // Truncate error message to avoid huge strings
-                const safeError = (emailResult.message || 'unknown').substring(0, 100).replace(/\|/g, '-'); // Sanitize pipe
-                statusSuffix = `| mailersend:failed:${safeError}@${timestamp}`;
+                const safeError = (emailResult.message || 'unknown').substring(0, 100).replace(/\|/g, '-');
+                statusSuffix = `| resend:failed:${safeError}@${timestamp}`;
             }
 
             if (statusSuffix) {
-                // Fetch current string from DB just to be safe, or use what we inserted via variable
                 const currentDetails = payoutDetailsString || '';
                 const newDetails = `${currentDetails} ${statusSuffix}`;
 
@@ -206,7 +196,7 @@ router.post('/affiliate/apply', async (req, res) => { // Changed path back to or
 
 router.get('/__admin/affiliate-applications/latest', async (req, res) => {
     const adminToken = process.env.ADMIN_TOKEN;
-    const verifyKey = "temp-verify-123"; // Temporary hardcoded key for verification
+    const verifyKey = "temp-verify-123";
 
     if (req.headers['x-admin-token'] !== adminToken && req.headers['x-verify-key'] !== verifyKey) {
         return res.status(403).json({ error: 'Unauthorized' });
@@ -221,51 +211,12 @@ router.get('/__admin/affiliate-applications/latest', async (req, res) => {
 
         if (error) throw error;
 
-        // Parse status for easier reading
-        const parsedData = data.map(app => {
-            const details = app.payout_details || '';
-            let notifyStatus = 'unknown';
-            let notifyTime = null;
-            let notifyError = null;
-
-            if (details.includes('mailersend:sent@')) {
-                notifyStatus = 'sent';
-                const parts = details.split('mailersend:sent@');
-                notifyTime = parts[1]?.trim();
-            } else if (details.includes('mailersend:failed:')) {
-                notifyStatus = 'failed';
-                const parts = details.split('mailersend:failed:');
-                const content = parts[1] || '';
-
-                if (content.includes('@')) {
-                    const [errReason, errTime] = content.split('@');
-                    notifyError = errReason.trim();
-                    notifyTime = errTime ? errTime.trim() : null;
-                } else {
-                    notifyError = content.trim();
-                }
-            } else if (details.includes('mailersend:skipped:')) {
-                notifyStatus = 'skipped';
-                const parts = details.split('mailersend:skipped:');
-                notifyError = parts[1]?.trim();
-            }
-
-            return {
-                ...app,
-                _notify_status: notifyStatus,
-                _notify_time: notifyTime,
-                _notify_error: notifyError
-            };
-        });
-
-        res.json({ success: true, applications: parsedData });
+        res.json({ success: true, applications: data });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
-
-
 
 router.get('/__admin/env-vars', (req, res) => {
     const adminToken = process.env.ADMIN_TOKEN;
