@@ -1,4 +1,3 @@
-
 import express from 'express';
 import { createClient } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase.js';
@@ -59,7 +58,8 @@ async function handleTrackReferral(req, res) {
         if (!userId) return res.status(401).json({ error: 'Unauthorized' });
         if (!referralCode) return res.status(400).json({ error: 'Referral code required' });
 
-        const { data: referrer, error: referrerError } = await supabase.from('profiles').select('id').eq('referral_code', referralCode).single();
+        // Select 'id' AND 'referral_code' to ensure we have data for insert
+        const { data: referrer, error: referrerError } = await supabase.from('profiles').select('id, referral_code').eq('referral_code', referralCode).single();
 
         if (referrerError || !referrer) {
             console.warn(`[REFERRAL] Invalid code: ${referralCode}`);
@@ -70,11 +70,12 @@ async function handleTrackReferral(req, res) {
             return res.status(400).json({ error: 'Cannot refer yourself' });
         }
 
-        // RESTORED: 'referrer_user_id' is NOT NULL in DB schema
+        // Inserting ALL columns required by schema/user
         const { data: newLog, error: logError } = await supabase.from('referral_logs').insert({
-            referrer_id: referrer.id, // Primary referrer link
-            referrer_user_id: referrer.id, // Required legacy column
+            referrer_id: referrer.id,
+            referrer_user_id: referrer.id, // Explicitly verified
             referred_user_id: userId,
+            referral_code: referralCode, // USER REQUIREMENT
             status: 'pending'
         })
             .select('id, created_at, status')
@@ -118,11 +119,10 @@ router.get('/referrals/history', async (req, res) => {
         if (authHeader && authHeader.startsWith('Bearer ')) {
             const token = authHeader.substring(7);
             const supabaseUrl = process.env.SUPABASE_URL;
-            // Use Anon Key (public key) + Token for RLS
             const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
 
             if (supabaseUrl && supabaseAnonKey) {
-                // IMPORTANT: 'global' headers is how we pass the token
+                // Pass token in headers for RLS
                 supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
                     global: { headers: { Authorization: `Bearer ${token}` } }
                 });
@@ -137,7 +137,8 @@ router.get('/referrals/history', async (req, res) => {
 
         if (error) {
             console.error('[REFERRAL] History error:', error);
-            // Don't throw, just return error to client for debugging
+            // Return empty array on error to prevent 500 in frontend if RLS fails weirdly?
+            // No, user wants debugging. Return 500.
             return res.status(500).json({ error: 'History fetch failed', details: error.message });
         }
 
