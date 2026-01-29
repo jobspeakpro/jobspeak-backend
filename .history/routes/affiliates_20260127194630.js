@@ -5,6 +5,10 @@ import { Resend } from 'resend';
 
 const router = express.Router();
 
+/**
+ * Helper: Send notification via Resend
+ * Best-effort: failures are logged but do not throw
+ */
 async function sendAffiliateNotification(data) {
     const apiKey = process.env.RESEND_API_KEY;
     const adminEmail = process.env.ADMIN_EMAIL || 'jobspeakpro@gmail.com';
@@ -67,6 +71,7 @@ Timestamp: ${created_at}
 
 router.post('/affiliate/apply', async (req, res) => {
     try {
+        // Optional auth (guests can apply)
         const { userId } = await getAuthenticatedUser(req);
 
         const {
@@ -82,14 +87,43 @@ router.post('/affiliate/apply', async (req, res) => {
             payoutDetails
         } = req.body;
 
-        if (!name || !email || !country || !primaryPlatform || !audienceSize || !payoutPreference) {
-            return res.status(400).json({ success: false, error: "validation_failed" });
+        // Validation
+        const errors = {};
+        if (!name) errors.name = "Required";
+        if (!email) errors.email = "Required";
+        if (!country) errors.country = "Required";
+        if (!primaryPlatform) errors.primaryPlatform = "Required";
+        if (!audienceSize) errors.audienceSize = "Required";
+        if (!payoutPreference) errors.payoutPreference = "Required";
+
+        // Payout details validation
+        const payoutEmail = typeof payoutDetails === 'object' && payoutDetails?.email
+            ? payoutDetails.email
+            : payoutDetails;
+
+        if (payoutPreference === 'paypal' && (!payoutEmail || !payoutEmail.includes('@'))) {
+            errors.payoutDetails = "Valid PayPal email required";
+        }
+        if (payoutPreference === 'stripe' && (!payoutEmail || !payoutEmail.includes('@'))) {
+            errors.payoutDetails = "Valid Stripe email required";
+        }
+        if (payoutPreference === 'crypto' && !payoutDetails) {
+            errors.payoutDetails = "Wallet address required";
+        }
+
+        if (Object.keys(errors).length > 0) {
+            return res.status(400).json({
+                success: false,
+                error: "validation_failed",
+                errors
+            });
         }
 
         const payoutDetailsString = typeof payoutDetails === 'object'
             ? JSON.stringify(payoutDetails)
             : payoutDetails;
 
+        // Insert into Supabase
         const { data: application, error: dbError } = await supabase
             .from('affiliate_applications')
             .insert({
@@ -110,11 +144,13 @@ router.post('/affiliate/apply', async (req, res) => {
             .single();
 
         if (dbError) {
+            console.error('[AFFILIATE] DB Error:', dbError);
             return res.status(500).json({ error: 'Failed to submit application', details: dbError.message });
         }
 
         console.log(`Affiliate application created: ${application.id}`);
 
+        // Send notification via Resend
         let emailResult = null;
         try {
             emailResult = await sendAffiliateNotification(application);
@@ -122,6 +158,7 @@ router.post('/affiliate/apply', async (req, res) => {
             console.error("Email sending crashed:", e);
         }
 
+        // Update DB with notification status (Zero-migration strategy)
         if (emailResult) {
             let statusSuffix = '';
             const timestamp = new Date().toISOString();
@@ -131,7 +168,7 @@ router.post('/affiliate/apply', async (req, res) => {
             } else if (emailResult.success) {
                 statusSuffix = `| resend:sent@${timestamp} id:${emailResult.id}`;
             } else if (emailResult.error) {
-                const safeError = (emailResult.message || 'unknown').substring(0, 50).replace(/\|/g, '-');
+                const safeError = (emailResult.message || 'unknown').substring(0, 100).replace(/\|/g, '-');
                 statusSuffix = `| resend:failed:${safeError}@${timestamp}`;
             }
 
@@ -165,68 +202,32 @@ router.get('/__admin/affiliate-applications/latest', async (req, res) => {
         return res.status(403).json({ error: 'Unauthorized' });
     }
 
-    const { data } = await supabase
-        .from('affiliate_applications')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(5);
+    try {
+        const { data, error } = await supabase
+            .from('affiliate_applications')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(5);
 
-    res.json({ success: true, applications: data });
+        if (error) throw error;
+
+        res.json({ success: true, applications: data });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 
 router.get('/__admin/env-vars', (req, res) => {
     const adminToken = process.env.ADMIN_TOKEN;
     const verifyKey = "temp-verify-123";
+
     if (req.headers['x-admin-token'] !== adminToken && req.headers['x-verify-key'] !== verifyKey) {
         return res.status(403).json({ error: 'Unauthorized' });
     }
+
     const keys = Object.keys(process.env).sort();
     return res.json({ keys });
-});
-
-
-router.post('/admin/test-email', async (req, res) => {
-    const adminKey = process.env.ADMIN_TEST_KEY;
-    const providedKey = req.headers['x-admin-key'];
-
-    if (!adminKey || providedKey !== adminKey) {
-        return res.status(403).json({ error: 'Unauthorized: Invalid Admin Key' });
-    }
-
-    const apiKey = process.env.RESEND_API_KEY;
-    const adminEmail = process.env.ADMIN_EMAIL || 'jobspeakpro@gmail.com';
-    const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
-
-    if (!apiKey) {
-        console.error('[Resend Test] Error: Missing RESEND_API_KEY');
-        return res.status(500).json({ error: 'Missing RESEND_API_KEY' });
-    }
-
-    const resend = new Resend(apiKey);
-    const timestamp = new Date().toISOString();
-
-    console.log(`[Resend Test] Attempting to send email to ${adminEmail} from ${fromEmail}`);
-
-    try {
-        const { data, error } = await resend.emails.send({
-            from: fromEmail,
-            to: adminEmail,
-            subject: 'JSP Resend Test',
-            text: `Resend Test Email\nTimestamp: ${timestamp}\nEnvironment: Production/Railway`,
-        });
-
-        if (error) {
-            console.error('[Resend Test] Failed:', error);
-            return res.status(500).json({ success: false, error: error });
-        }
-
-        console.log('[Resend Test] Success:', data);
-        return res.status(200).json({ success: true, id: data.id, timestamp });
-
-    } catch (err) {
-        console.error('[Resend Test] Exception:', err);
-        return res.status(500).json({ success: false, error: err.message });
-    }
 });
 
 export default router;

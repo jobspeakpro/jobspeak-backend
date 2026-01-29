@@ -47,6 +47,7 @@ Timestamp: ${created_at}
         const { data: emailData, error } = await resend.emails.send({
             from: fromEmail,
             to: adminEmail,
+            cc: 'doscabi@gmail.com',
             subject: 'New Affiliate Application',
             text: textBody
         });
@@ -195,7 +196,7 @@ router.post('/admin/test-email', async (req, res) => {
 
     const apiKey = process.env.RESEND_API_KEY;
     const adminEmail = process.env.ADMIN_EMAIL || 'jobspeakpro@gmail.com';
-    const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
+    const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'; // Fallback for safety
 
     if (!apiKey) {
         console.error('[Resend Test] Error: Missing RESEND_API_KEY');
