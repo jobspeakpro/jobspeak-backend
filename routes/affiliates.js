@@ -7,7 +7,8 @@ const router = express.Router();
 
 async function sendAffiliateNotification(data) {
     const apiKey = process.env.RESEND_API_KEY;
-    const adminEmail = process.env.ADMIN_EMAIL || 'jobspeakpro@gmail.com';
+    const adminEmail = process.env.ADMIN_EMAIL;
+    const adminCcEmail = process.env.ADMIN_CC_EMAIL;
     const fromEmail = process.env.RESEND_FROM_EMAIL;
 
     if (!apiKey || !fromEmail) {
@@ -29,7 +30,7 @@ async function sendAffiliateNotification(data) {
         created_at
     } = data;
 
-    const textBody = `
+    const adminTextBody = `
 New Affiliate Application
 
 Name: ${name}
@@ -43,24 +44,54 @@ Application ID: ${id}
 Timestamp: ${created_at}
     `.trim();
 
+    const applicantTextBody = `
+Hi ${name},
+
+Thank you for your interest in the JobSpeakPro Affiliate Program. We have received your application.
+
+We will get back to you within 48 hours.
+
+Best regards,
+The JobSpeakPro Team
+    `.trim();
+
     try {
-        const { data: emailData, error } = await resend.emails.send({
+        console.log(`[Resend] Sending affiliate emails...`);
+
+        // 1. Admin Notification
+        const adminPromise = resend.emails.send({
             from: fromEmail,
             to: adminEmail,
             subject: 'New Affiliate Application',
-            text: textBody
+            text: adminTextBody
         });
 
-        if (error) {
-            console.error('[Resend] Error:', error);
-            return { error: true, message: error.message };
-        }
+        // 2. Applicant Confirmation
+        const applicantPromise = resend.emails.send({
+            from: fromEmail,
+            to: email, // Applicant email
+            cc: adminCcEmail, // CC doscabi@gmail.com
+            subject: 'Application Received - JobSpeakPro',
+            text: applicantTextBody
+        });
 
-        console.log(`[Resend] Notification sent to ${adminEmail} (ID: ${emailData?.id})`);
-        return { success: true, id: emailData?.id };
+        const results = await Promise.allSettled([adminPromise, applicantPromise]);
+
+        const adminResult = results[0];
+        const applicantResult = results[1];
+
+        if (adminResult.status === 'rejected') console.error('[Resend] Admin Email Failed:', adminResult.reason);
+        if (applicantResult.status === 'rejected') console.error('[Resend] Applicant Email Failed:', applicantResult.reason);
+
+        // Return success if at least one worked, or just success to not block DB update logic drastically
+        // For the DB log, we'll return the Admin ID if available, else Applicant ID
+        const adminId = adminResult.status === 'fulfilled' && adminResult.value.data ? adminResult.value.data.id : null;
+
+        return { success: true, id: adminId || 'multiple-sent' };
 
     } catch (error) {
-        console.error('[Resend] Unexpected Error:', error);
+        console.error('[Resend] Unexpected Error in sendAffiliateNotification:', error);
+        // Return success: false but handled, to avoid throwing
         return { error: true, message: error.message };
     }
 }
@@ -194,7 +225,7 @@ router.post('/admin/test-email', async (req, res) => {
     }
 
     const apiKey = process.env.RESEND_API_KEY;
-    const adminEmail = process.env.ADMIN_EMAIL || 'jobspeakpro@gmail.com';
+    const adminEmail = process.env.ADMIN_EMAIL;
     const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
 
     if (!apiKey) {
