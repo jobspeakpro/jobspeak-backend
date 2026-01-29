@@ -53,18 +53,8 @@ Best regards,
 The JobSpeakPro Team
     `.trim();
 
-    const teamTextBody = `
-Affiliate Application Received
-
-Applicant: ${name} (${email})
-
-We received your application. We will get back to you within 48 hours.
-
-(This is a confirmation copy for the team)
-    `.trim();
-
     try {
-        console.log(`[Resend] Sending 3 affiliate emails (Admin, Applicant, Team)...`);
+        console.log(`[Resend] Sending 2 affiliate emails (Admin, Applicant)...`);
 
         // 1. Admin Notification
         const adminPromise = resend.emails.send({
@@ -82,23 +72,13 @@ We received your application. We will get back to you within 48 hours.
             text: applicantTextBody
         });
 
-        // 3. Team Confirmation (doscabi@gmail.com)
-        const teamPromise = resend.emails.send({
-            from: fromEmail,
-            to: adminCcEmail,
-            subject: 'Affiliate application received',
-            text: teamTextBody
-        });
-
-        const results = await Promise.allSettled([adminPromise, applicantPromise, teamPromise]);
+        const results = await Promise.allSettled([adminPromise, applicantPromise]);
 
         const adminResult = results[0];
         const applicantResult = results[1];
-        const teamResult = results[2];
 
         if (adminResult.status === 'rejected') console.error('[Resend] Admin Email Failed:', adminResult.reason);
         if (applicantResult.status === 'rejected') console.error('[Resend] Applicant Email Failed:', applicantResult.reason);
-        if (teamResult.status === 'rejected') console.error('[Resend] Team Email Failed:', teamResult.reason);
 
         // Return success if at least one worked
         const id = adminResult.status === 'fulfilled' && adminResult.value.data ? adminResult.value.data.id : 'multiple-sent';
