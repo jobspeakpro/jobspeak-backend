@@ -18,6 +18,7 @@ if (!fs.existsSync(CACHE_DIR)) {
 let googleClient = null;
 let googleAuthReady = false;
 let elevenLabsKey = null;
+let openaiKey = null;
 
 // --- ROBUST ENV VAR LOADING ---
 function getElevenLabsKey() {
@@ -37,6 +38,7 @@ function getElevenLabsKey() {
 }
 
 elevenLabsKey = getElevenLabsKey();
+openaiKey = process.env.OPENAI_API_KEY?.trim() || null;
 
 // --- GOOGLE AUTH SETUP (NON-BLOCKING) ---
 const GOOGLE_CREDS_PATH = path.join(process.cwd(), "tmp", "google_credentials.json");
@@ -75,21 +77,23 @@ googleAuthReady = initGoogleClient();
 console.log("=== TTS STARTUP ===");
 console.log(`TTS: hasGoogleCreds=${googleAuthReady}`);
 console.log(`TTS: hasElevenLabsKey=${!!elevenLabsKey}`);
-console.log(`TTS: selectedProvider=${googleAuthReady ? 'GOOGLE' : (elevenLabsKey ? 'ELEVENLABS' : 'NONE')}`);
+console.log(`TTS: hasOpenAIKey=${!!openaiKey}`);
+const primaryProvider = googleAuthReady ? 'GOOGLE' : (elevenLabsKey ? 'ELEVENLABS' : (openaiKey ? 'OPENAI' : 'NONE'));
+console.log(`TTS: primaryProvider=${primaryProvider}`);
 console.log("===================");
 
 // --- VOICE MAPPING ---
 const VOICE_DEFS = {
-  "us_female_emma": { google: "en-US-Neural2-F", eleven: "JBFqnCBsd6RMkjVDRZzb", locale: "en-US" },
-  "us_female_ava": { google: "en-US-Neural2-C", eleven: "Xb7hH8MSUJpSbSDYk0k2", locale: "en-US" },
-  "us_male_jake": { google: "en-US-Neural2-D", eleven: "pNInz6obpgDQGcFmaJgB", locale: "en-US" },
-  "us_male_noah": { google: "en-US-Neural2-I", eleven: "M3m6rJZy5B3ItN0Fcuxy", locale: "en-US" },
-  "uk_female_emma": { google: "en-GB-Neural2-A", eleven: "EXAVITQu4vr4xnSDxMaL", locale: "en-GB" },
-  "uk_male_oliver": { google: "en-GB-Neural2-D", eleven: "jsCqWAovK2LkecY7zXl4", locale: "en-GB" },
-  "uk_female_sophie": { google: "en-GB-Neural2-C", eleven: "LcfcDJNUP1GQjkzn1xUU", locale: "en-GB" },
-  "uk_male_harry": { google: "en-GB-Neural2-B", eleven: "SOYHLrjzK2X1ezoPC6cr", locale: "en-GB" },
-  "default_female": { google: "en-US-Neural2-F", eleven: "JBFqnCBsd6RMkjVDRZzb", locale: "en-US" },
-  "default_male": { google: "en-US-Neural2-D", eleven: "pNInz6obpgDQGcFmaJgB", locale: "en-US" }
+  "us_female_emma": { google: "en-US-Neural2-F", eleven: "JBFqnCBsd6RMkjVDRZzb", openai: "nova", locale: "en-US" },
+  "us_female_ava": { google: "en-US-Neural2-C", eleven: "Xb7hH8MSUJpSbSDYk0k2", openai: "alloy", locale: "en-US" },
+  "us_male_jake": { google: "en-US-Neural2-D", eleven: "pNInz6obpgDQGcFmaJgB", openai: "onyx", locale: "en-US" },
+  "us_male_noah": { google: "en-US-Neural2-I", eleven: "M3m6rJZy5B3ItN0Fcuxy", openai: "echo", locale: "en-US" },
+  "uk_female_emma": { google: "en-GB-Neural2-A", eleven: "EXAVITQu4vr4xnSDxMaL", openai: "shimmer", locale: "en-GB" },
+  "uk_male_oliver": { google: "en-GB-Neural2-D", eleven: "jsCqWAovK2LkecY7zXl4", openai: "fable", locale: "en-GB" },
+  "uk_female_sophie": { google: "en-GB-Neural2-C", eleven: "LcfcDJNUP1GQjkzn1xUU", openai: "nova", locale: "en-GB" },
+  "uk_male_harry": { google: "en-GB-Neural2-B", eleven: "SOYHLrjzK2X1ezoPC6cr", openai: "onyx", locale: "en-GB" },
+  "default_female": { google: "en-US-Neural2-F", eleven: "JBFqnCBsd6RMkjVDRZzb", openai: "nova", locale: "en-US" },
+  "default_male": { google: "en-US-Neural2-D", eleven: "pNInz6obpgDQGcFmaJgB", openai: "onyx", locale: "en-US" }
 };
 
 function resolveVoice(voiceId, locale, gender) {
@@ -140,8 +144,38 @@ async function generateElevenLabs(text, voiceDef) {
   );
 
   if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`ElevenLabs API Error: ${response.status} ${err}`);
+    const errorText = await response.text();
+    if (response.status === 401) {
+      throw new Error(`ElevenLabs key rejected (401 sign_in_required)`);
+    }
+    throw new Error(`ElevenLabs API Error: ${response.status} ${errorText}`);
+  }
+
+  return Buffer.from(await response.arrayBuffer());
+}
+
+async function generateOpenAI(text, voiceDef) {
+  if (!openaiKey) throw new Error("Missing OpenAI API Key");
+
+  const response = await fetch(
+    "https://api.openai.com/v1/audio/speech",
+    {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${openaiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "tts-1",
+        input: text,
+        voice: voiceDef.openai || "nova"
+      })
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenAI TTS Error: ${response.status} ${errorText}`);
   }
 
   return Buffer.from(await response.arrayBuffer());
@@ -161,7 +195,7 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
     }
 
     const voiceDef = resolveVoice(voiceId, locale, voiceName);
-    const cacheKey = getCacheKey(text, voiceDef.google + "|" + voiceDef.eleven, speed);
+    const cacheKey = getCacheKey(text, voiceDef.google + "|" + voiceDef.eleven + "|" + voiceDef.openai, speed);
     const cachePath = path.join(CACHE_DIR, `${cacheKey}.mp3`);
 
     // 1. CACHE CHECK
@@ -176,13 +210,12 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
       });
     }
 
-    // 2. ATTEMPT PROVIDERS
+    // 2. ATTEMPT PROVIDERS IN PRIORITY ORDER
     let audioBuffer = null;
     let usedProvider = "NONE";
-    let googleError = null;
-    let elevenError = null;
+    const errors = {};
 
-    // TRY GOOGLE (if available)
+    // TRY GOOGLE (Priority 1)
     if (googleAuthReady) {
       try {
         console.log(`[TTS] Attempting Google...`);
@@ -190,36 +223,46 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
         usedProvider = "GOOGLE";
         console.log(`[TTS] Provider selected: GOOGLE`);
       } catch (err) {
-        googleError = err.message;
+        errors.google = err.message;
         console.warn(`[TTS] Google failed: ${err.message}`);
       }
     } else {
-      googleError = "Google credentials not configured";
+      errors.google = "Google credentials not configured";
     }
 
-    // FALLBACK TO ELEVENLABS (if Google failed or unavailable)
+    // TRY ELEVENLABS (Priority 2)
     if (!audioBuffer && elevenLabsKey) {
       try {
         console.log(`[TTS] Attempting ElevenLabs...`);
         audioBuffer = await generateElevenLabs(text, voiceDef);
         usedProvider = "ELEVENLABS";
-        console.log(`[TTS] Provider selected: ELEVENLABS (fallback)`);
+        console.log(`[TTS] Provider selected: ELEVENLABS`);
       } catch (err) {
-        elevenError = err.message;
-        console.error(`[TTS] ElevenLabs failed: ${err.message}`);
+        errors.elevenlabs = err.message;
+        console.warn(`[TTS] ElevenLabs failed: ${err.message}`);
+      }
+    }
+
+    // TRY OPENAI (Priority 3 - Emergency Fallback)
+    if (!audioBuffer && openaiKey) {
+      try {
+        console.log(`[TTS] Attempting OpenAI (emergency fallback)...`);
+        audioBuffer = await generateOpenAI(text, voiceDef);
+        usedProvider = "OPENAI";
+        console.log(`[TTS] Provider selected: OPENAI (emergency fallback)`);
+      } catch (err) {
+        errors.openai = err.message;
+        console.error(`[TTS] OpenAI failed: ${err.message}`);
       }
     }
 
     // 3. HANDLE FAILURE
     if (!audioBuffer) {
-      console.error(`[TTS] All providers failed. Google: ${googleError}, ElevenLabs: ${elevenError}`);
+      console.error(`[TTS] All providers failed:`, errors);
       return res.status(502).json({
         ok: false,
         error: "All TTS providers failed",
-        details: {
-          google: googleError || "Not attempted",
-          elevenlabs: elevenError || "Not attempted"
-        }
+        details: errors
       });
     }
 
@@ -252,7 +295,8 @@ router.get("/health", (req, res) => {
   res.json({
     ok: true,
     google: googleAuthReady,
-    elevenlabs: !!elevenLabsKey
+    elevenlabs: !!elevenLabsKey,
+    openai: !!openaiKey
   });
 });
 
