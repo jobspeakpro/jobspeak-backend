@@ -14,6 +14,10 @@ if (!fs.existsSync(CACHE_DIR)) {
   fs.mkdirSync(CACHE_DIR, { recursive: true });
 }
 
+// In-memory micro-cache for onboarding prompts
+const ONBOARDING_CACHE = new Map();
+const ONBOARDING_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
 // Global clients
 let googleClient = null;
 let googleAuthReady = false;
@@ -85,27 +89,27 @@ console.log("===================");
 // --- VOICE MAPPING (ALL DISTINCT - NO REUSE) ---
 const VOICE_DEFS = {
   // US Voices - DISTINCT OpenAI mappings
-  "us_female_emma": { google: "en-US-Neural2-F", eleven: "JBFqnCBsd6RMkjVDRZzb", openai: "shimmer", locale: "en-US" },  // CLEARLY FEMALE for onboarding
-  "us_female_ava": { google: "en-US-Neural2-C", eleven: "Xb7hH8MSUJpSbSDYk0k2", openai: "nova", locale: "en-US" },     // Female warm
+  "us_female_emma": { google: "en-US-Neural2-F", eleven: "JBFqnCBsd6RMkjVDRZzb", openai: "nova", locale: "en-US" },     // WARM/ENCOURAGING for onboarding
+  "us_female_ava": { google: "en-US-Neural2-C", eleven: "Xb7hH8MSUJpSbSDYk0k2", openai: "shimmer", locale: "en-US" },  // Bright female
   "us_male_jake": { google: "en-US-Neural2-D", eleven: "pNInz6obpgDQGcFmaJgB", openai: "onyx", locale: "en-US" },     // Male deep
   "us_male_noah": { google: "en-US-Neural2-I", eleven: "M3m6rJZy5B3ItN0Fcuxy", openai: "echo", locale: "en-US" },     // Male resonant
 
   // UK Voices - DISTINCT OpenAI mappings
   "uk_female_emma": { google: "en-GB-Neural2-A", eleven: "EXAVITQu4vr4xnSDxMaL", openai: "alloy", locale: "en-GB" },   // Balanced neutral
   "uk_male_oliver": { google: "en-GB-Neural2-D", eleven: "jsCqWAovK2LkecY7zXl4", openai: "fable", locale: "en-GB" },   // Expressive
-  "uk_female_sophie": { google: "en-GB-Neural2-C", eleven: "LcfcDJNUP1GQjkzn1xUU", openai: "nova", locale: "en-GB" },    // Warm female (reused but different region)
-  "uk_male_harry": { google: "en-GB-Neural2-B", eleven: "SOYHLrjzK2X1ezoPC6cr", openai: "echo", locale: "en-GB" },    // Resonant (reused but different region)
+  "uk_female_sophie": { google: "en-GB-Neural2-C", eleven: "LcfcDJNUP1GQjkzn1xUU", openai: "shimmer", locale: "en-GB" }, // Bright female
+  "uk_male_harry": { google: "en-GB-Neural2-B", eleven: "SOYHLrjzK2X1ezoPC6cr", openai: "echo", locale: "en-GB" },    // Resonant
 
   // Fallbacks
-  "default_female": { google: "en-US-Neural2-F", eleven: "JBFqnCBsd6RMkjVDRZzb", openai: "shimmer", locale: "en-US" },  // CLEARLY FEMALE
+  "default_female": { google: "en-US-Neural2-F", eleven: "JBFqnCBsd6RMkjVDRZzb", openai: "nova", locale: "en-US" },      // WARM/ENCOURAGING
   "default_male": { google: "en-US-Neural2-D", eleven: "pNInz6obpgDQGcFmaJgB", openai: "onyx", locale: "en-US" }
 };
 
-// ONBOARDING VOICE - FORCE FEMALE
-const ONBOARDING_VOICE = "us_female_emma"; // shimmer - clearly female
+// ONBOARDING VOICE - FORCE WARM/ENCOURAGING FEMALE (nova)
+const ONBOARDING_VOICE = "us_female_emma"; // nova - warm and encouraging
 
 function resolveVoice(voiceId, locale, gender) {
-  // Force female voice for onboarding
+  // Force warm female voice for onboarding/default
   if (!voiceId || voiceId === "default" || voiceId === "") {
     return VOICE_DEFS[ONBOARDING_VOICE];
   }
@@ -181,7 +185,7 @@ async function generateOpenAI(text, voiceDef) {
       body: JSON.stringify({
         model: "tts-1",
         input: text,
-        voice: voiceDef.openai || "shimmer"
+        voice: voiceDef.openai || "nova"
       })
     }
   );
@@ -194,16 +198,28 @@ async function generateOpenAI(text, voiceDef) {
   return Buffer.from(await response.arrayBuffer());
 }
 
-function getCacheKey(text, voiceId, speed) {
-  return crypto.createHash("sha256").update(`${text}|${voiceId}|${speed}`).digest("hex");
+function getCacheKey(provider, voice, text) {
+  return crypto.createHash("sha256").update(`${provider}|${voice}|${text}`).digest("hex");
 }
 
 function generateRequestId() {
   return crypto.randomUUID();
 }
 
+// Micro-cache cleanup (run every 5 minutes)
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of ONBOARDING_CACHE.entries()) {
+    if (now - entry.timestamp > ONBOARDING_CACHE_TTL) {
+      ONBOARDING_CACHE.delete(key);
+    }
+  }
+}, 5 * 60 * 1000);
+
 // --- ROUTE ---
 router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"), async (req, res) => {
+  const startTime = Date.now();
+
   try {
     const { text, voiceId, locale, voiceName, speed = 1.0 } = req.body;
     const requestId = generateRequestId();
@@ -212,22 +228,45 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
       return res.status(400).json({ error: "Missing text" });
     }
 
-    // Resolve voice (with onboarding female fallback)
+    // Resolve voice (with onboarding warm female fallback)
     const requestedVoiceName = voiceId || voiceName || "default";
     const voiceDef = resolveVoice(voiceId, locale, voiceName);
 
-    // NO CACHE - always generate fresh
     console.log(`[TTS] requestId=${requestId}, requestedVoiceName=${requestedVoiceName}, resolvedVoice=${voiceDef.openai || voiceDef.eleven || voiceDef.google}`);
 
-    // Set no-cache headers
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
+    // Check micro-cache for onboarding prompts (default voice)
+    const isOnboarding = !voiceId || voiceId === "default" || voiceId === "";
+    const cacheKey = getCacheKey("OPENAI", voiceDef.openai, text);
+
+    if (isOnboarding && ONBOARDING_CACHE.has(cacheKey)) {
+      const cached = ONBOARDING_CACHE.get(cacheKey);
+      const totalTime = Date.now() - startTime;
+      console.log(`[TTS] Onboarding cache HIT (${totalTime}ms)`);
+
+      return res.json({
+        ok: true,
+        audioUrl: cached.audioUrl,
+        provider: cached.provider,
+        requestedVoiceName: requestedVoiceName,
+        resolvedVoice: cached.resolvedVoice,
+        requestId: requestId,
+        cached: true,
+        timingMs: { tts: 0, total: totalTime }
+      });
+    }
+
+    // Set no-cache headers for non-onboarding
+    if (!isOnboarding) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
 
     // ATTEMPT PROVIDERS IN PRIORITY ORDER
     let audioBuffer = null;
     let usedProvider = "NONE";
     const errors = {};
+    const ttsStartTime = Date.now();
 
     // TRY GOOGLE (Priority 1)
     if (googleAuthReady) {
@@ -260,7 +299,7 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
     // TRY OPENAI (Priority 3 - Emergency Fallback)
     if (!audioBuffer && openaiKey) {
       try {
-        console.log(`[TTS] Attempting OpenAI (emergency fallback)...`);
+        console.log(`[TTS] Attempting OpenAI...`);
         audioBuffer = await generateOpenAI(text, voiceDef);
         usedProvider = "OPENAI";
         console.log(`[TTS] Provider selected: OPENAI, voice=${voiceDef.openai}`);
@@ -270,6 +309,8 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
       }
     }
 
+    const ttsTime = Date.now() - ttsStartTime;
+
     // HANDLE FAILURE
     if (!audioBuffer) {
       console.error(`[TTS] All providers failed:`, errors);
@@ -277,19 +318,37 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
         ok: false,
         error: "All TTS providers failed",
         details: errors,
-        requestId
+        requestId,
+        timingMs: { tts: ttsTime, total: Date.now() - startTime }
       });
     }
 
-    // SUCCESS - NO CACHING
+    // SUCCESS
+    const audioUrl = `data:audio/mpeg;base64,${audioBuffer.toString('base64')}`;
+    const totalTime = Date.now() - startTime;
+
+    // Cache onboarding prompts
+    if (isOnboarding) {
+      ONBOARDING_CACHE.set(cacheKey, {
+        audioUrl,
+        provider: usedProvider,
+        resolvedVoice: voiceDef.openai || voiceDef.eleven || voiceDef.google,
+        timestamp: Date.now()
+      });
+      console.log(`[TTS] Onboarding cached (tts:${ttsTime}ms, total:${totalTime}ms)`);
+    }
+
+    console.log(`[TTS] Success (tts:${ttsTime}ms, total:${totalTime}ms)`);
+
     return res.json({
       ok: true,
-      audioUrl: `data:audio/mpeg;base64,${audioBuffer.toString('base64')}`,
+      audioUrl,
       provider: usedProvider,
       requestedVoiceName: requestedVoiceName,
       resolvedVoice: voiceDef.openai || voiceDef.eleven || voiceDef.google,
       requestId: requestId,
-      cached: false
+      cached: false,
+      timingMs: { tts: ttsTime, total: totalTime }
     });
 
   } catch (err) {
@@ -297,7 +356,8 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
     res.status(500).json({
       ok: false,
       error: "Internal Server Error",
-      detail: err.message
+      detail: err.message,
+      timingMs: { tts: 0, total: Date.now() - startTime }
     });
   }
 });
@@ -308,7 +368,8 @@ router.get("/health", (req, res) => {
     ok: true,
     google: googleAuthReady,
     elevenlabs: !!elevenLabsKey,
-    openai: !!openaiKey
+    openai: !!openaiKey,
+    onboardingCacheSize: ONBOARDING_CACHE.size
   });
 });
 
