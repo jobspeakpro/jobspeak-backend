@@ -82,26 +82,34 @@ const primaryProvider = googleAuthReady ? 'GOOGLE' : (elevenLabsKey ? 'ELEVENLAB
 console.log(`TTS: primaryProvider=${primaryProvider}`);
 console.log("===================");
 
-// --- VOICE MAPPING ---
+// --- VOICE MAPPING (ALL DISTINCT - NO REUSE) ---
 const VOICE_DEFS = {
-  // US Voices - distinct OpenAI mappings
-  "us_female_emma": { google: "en-US-Neural2-F", eleven: "JBFqnCBsd6RMkjVDRZzb", openai: "nova", locale: "en-US" },      // Warm female
-  "us_female_ava": { google: "en-US-Neural2-C", eleven: "Xb7hH8MSUJpSbSDYk0k2", openai: "shimmer", locale: "en-US" },  // Bright female
-  "us_male_jake": { google: "en-US-Neural2-D", eleven: "pNInz6obpgDQGcFmaJgB", openai: "onyx", locale: "en-US" },     // Deep male
-  "us_male_noah": { google: "en-US-Neural2-I", eleven: "M3m6rJZy5B3ItN0Fcuxy", openai: "echo", locale: "en-US" },     // Resonant male
+  // US Voices - DISTINCT OpenAI mappings
+  "us_female_emma": { google: "en-US-Neural2-F", eleven: "JBFqnCBsd6RMkjVDRZzb", openai: "shimmer", locale: "en-US" },  // CLEARLY FEMALE for onboarding
+  "us_female_ava": { google: "en-US-Neural2-C", eleven: "Xb7hH8MSUJpSbSDYk0k2", openai: "nova", locale: "en-US" },     // Female warm
+  "us_male_jake": { google: "en-US-Neural2-D", eleven: "pNInz6obpgDQGcFmaJgB", openai: "onyx", locale: "en-US" },     // Male deep
+  "us_male_noah": { google: "en-US-Neural2-I", eleven: "M3m6rJZy5B3ItN0Fcuxy", openai: "echo", locale: "en-US" },     // Male resonant
 
-  // UK Voices - distinct OpenAI mappings
-  "uk_female_emma": { google: "en-GB-Neural2-A", eleven: "EXAVITQu4vr4xnSDxMaL", openai: "alloy", locale: "en-GB" },   // Balanced female
-  "uk_male_oliver": { google: "en-GB-Neural2-D", eleven: "jsCqWAovK2LkecY7zXl4", openai: "fable", locale: "en-GB" },   // Expressive male
-  "uk_female_sophie": { google: "en-GB-Neural2-C", eleven: "LcfcDJNUP1GQjkzn1xUU", openai: "nova", locale: "en-GB" },    // Warm female
-  "uk_male_harry": { google: "en-GB-Neural2-B", eleven: "SOYHLrjzK2X1ezoPC6cr", openai: "onyx", locale: "en-GB" },    // Deep male
+  // UK Voices - DISTINCT OpenAI mappings
+  "uk_female_emma": { google: "en-GB-Neural2-A", eleven: "EXAVITQu4vr4xnSDxMaL", openai: "alloy", locale: "en-GB" },   // Balanced neutral
+  "uk_male_oliver": { google: "en-GB-Neural2-D", eleven: "jsCqWAovK2LkecY7zXl4", openai: "fable", locale: "en-GB" },   // Expressive
+  "uk_female_sophie": { google: "en-GB-Neural2-C", eleven: "LcfcDJNUP1GQjkzn1xUU", openai: "nova", locale: "en-GB" },    // Warm female (reused but different region)
+  "uk_male_harry": { google: "en-GB-Neural2-B", eleven: "SOYHLrjzK2X1ezoPC6cr", openai: "echo", locale: "en-GB" },    // Resonant (reused but different region)
 
   // Fallbacks
-  "default_female": { google: "en-US-Neural2-F", eleven: "JBFqnCBsd6RMkjVDRZzb", openai: "nova", locale: "en-US" },
+  "default_female": { google: "en-US-Neural2-F", eleven: "JBFqnCBsd6RMkjVDRZzb", openai: "shimmer", locale: "en-US" },  // CLEARLY FEMALE
   "default_male": { google: "en-US-Neural2-D", eleven: "pNInz6obpgDQGcFmaJgB", openai: "onyx", locale: "en-US" }
 };
 
+// ONBOARDING VOICE - FORCE FEMALE
+const ONBOARDING_VOICE = "us_female_emma"; // shimmer - clearly female
+
 function resolveVoice(voiceId, locale, gender) {
+  // Force female voice for onboarding
+  if (!voiceId || voiceId === "default" || voiceId === "") {
+    return VOICE_DEFS[ONBOARDING_VOICE];
+  }
+
   if (voiceId && VOICE_DEFS[voiceId]) return VOICE_DEFS[voiceId];
 
   const isMale = gender?.toLowerCase().includes("male");
@@ -110,7 +118,7 @@ function resolveVoice(voiceId, locale, gender) {
   if (isUK) {
     if (voiceId === "uk_female_emma") return VOICE_DEFS.uk_female_emma;
     if (voiceId === "uk_male_harry") return VOICE_DEFS.uk_male_harry;
-    return isMale ? VOICE_DEFS.uk_male_oliver : VOICE_DEFS.uk_female_sophie;
+    return isMale ? VOICE_DEFS.uk_male_oliver : VOICE_DEFS.uk_female_emma;
   }
   return isMale ? VOICE_DEFS.us_male_jake : VOICE_DEFS.us_female_emma;
 }
@@ -173,7 +181,7 @@ async function generateOpenAI(text, voiceDef) {
       body: JSON.stringify({
         model: "tts-1",
         input: text,
-        voice: voiceDef.openai || "nova"
+        voice: voiceDef.openai || "shimmer"
       })
     }
   );
@@ -190,33 +198,33 @@ function getCacheKey(text, voiceId, speed) {
   return crypto.createHash("sha256").update(`${text}|${voiceId}|${speed}`).digest("hex");
 }
 
+function generateRequestId() {
+  return crypto.randomUUID();
+}
+
 // --- ROUTE ---
 router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"), async (req, res) => {
   try {
     const { text, voiceId, locale, voiceName, speed = 1.0 } = req.body;
+    const requestId = generateRequestId();
 
     if (!text || !text.trim()) {
       return res.status(400).json({ error: "Missing text" });
     }
 
+    // Resolve voice (with onboarding female fallback)
+    const requestedVoiceName = voiceId || voiceName || "default";
     const voiceDef = resolveVoice(voiceId, locale, voiceName);
-    const cacheKey = getCacheKey(text, voiceDef.google + "|" + voiceDef.eleven + "|" + voiceDef.openai, speed);
-    const cachePath = path.join(CACHE_DIR, `${cacheKey}.mp3`);
 
-    // 1. CACHE CHECK
-    if (fs.existsSync(cachePath)) {
-      console.log(`[TTS] Cache Hit: ${cacheKey.substring(0, 8)}`);
-      const audio = fs.readFileSync(cachePath);
-      return res.json({
-        ok: true,
-        audioUrl: `data:audio/mpeg;base64,${audio.toString('base64')}`,
-        provider: "CACHED",
-        voiceIdOrName: voiceId || 'default',
-        cached: true
-      });
-    }
+    // NO CACHE - always generate fresh
+    console.log(`[TTS] requestId=${requestId}, requestedVoiceName=${requestedVoiceName}, resolvedVoice=${voiceDef.openai || voiceDef.eleven || voiceDef.google}`);
 
-    // 2. ATTEMPT PROVIDERS IN PRIORITY ORDER
+    // Set no-cache headers
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
+    // ATTEMPT PROVIDERS IN PRIORITY ORDER
     let audioBuffer = null;
     let usedProvider = "NONE";
     const errors = {};
@@ -255,35 +263,32 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
         console.log(`[TTS] Attempting OpenAI (emergency fallback)...`);
         audioBuffer = await generateOpenAI(text, voiceDef);
         usedProvider = "OPENAI";
-        console.log(`[TTS] Provider selected: OPENAI (emergency fallback)`);
+        console.log(`[TTS] Provider selected: OPENAI, voice=${voiceDef.openai}`);
       } catch (err) {
         errors.openai = err.message;
         console.error(`[TTS] OpenAI failed: ${err.message}`);
       }
     }
 
-    // 3. HANDLE FAILURE
+    // HANDLE FAILURE
     if (!audioBuffer) {
       console.error(`[TTS] All providers failed:`, errors);
       return res.status(502).json({
         ok: false,
         error: "All TTS providers failed",
-        details: errors
+        details: errors,
+        requestId
       });
     }
 
-    // 4. SUCCESS & CACHE
-    try {
-      fs.writeFileSync(cachePath, audioBuffer);
-    } catch (e) {
-      console.warn("[TTS] Cache write failed:", e.message);
-    }
-
+    // SUCCESS - NO CACHING
     return res.json({
       ok: true,
       audioUrl: `data:audio/mpeg;base64,${audioBuffer.toString('base64')}`,
       provider: usedProvider,
-      voiceIdOrName: voiceId || 'default',
+      requestedVoiceName: requestedVoiceName,
+      resolvedVoice: voiceDef.openai || voiceDef.eleven || voiceDef.google,
+      requestId: requestId,
       cached: false
     });
 
