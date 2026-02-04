@@ -84,14 +84,19 @@ console.log("===================");
 
 // --- VOICE MAPPING ---
 const VOICE_DEFS = {
-  "us_female_emma": { google: "en-US-Neural2-F", eleven: "JBFqnCBsd6RMkjVDRZzb", openai: "nova", locale: "en-US" },
-  "us_female_ava": { google: "en-US-Neural2-C", eleven: "Xb7hH8MSUJpSbSDYk0k2", openai: "alloy", locale: "en-US" },
-  "us_male_jake": { google: "en-US-Neural2-D", eleven: "pNInz6obpgDQGcFmaJgB", openai: "onyx", locale: "en-US" },
-  "us_male_noah": { google: "en-US-Neural2-I", eleven: "M3m6rJZy5B3ItN0Fcuxy", openai: "echo", locale: "en-US" },
-  "uk_female_emma": { google: "en-GB-Neural2-A", eleven: "EXAVITQu4vr4xnSDxMaL", openai: "shimmer", locale: "en-GB" },
-  "uk_male_oliver": { google: "en-GB-Neural2-D", eleven: "jsCqWAovK2LkecY7zXl4", openai: "fable", locale: "en-GB" },
-  "uk_female_sophie": { google: "en-GB-Neural2-C", eleven: "LcfcDJNUP1GQjkzn1xUU", openai: "nova", locale: "en-GB" },
-  "uk_male_harry": { google: "en-GB-Neural2-B", eleven: "SOYHLrjzK2X1ezoPC6cr", openai: "onyx", locale: "en-GB" },
+  // US Voices - distinct OpenAI mappings
+  "us_female_emma": { google: "en-US-Neural2-F", eleven: "JBFqnCBsd6RMkjVDRZzb", openai: "nova", locale: "en-US" },      // Warm female
+  "us_female_ava": { google: "en-US-Neural2-C", eleven: "Xb7hH8MSUJpSbSDYk0k2", openai: "shimmer", locale: "en-US" },  // Bright female
+  "us_male_jake": { google: "en-US-Neural2-D", eleven: "pNInz6obpgDQGcFmaJgB", openai: "onyx", locale: "en-US" },     // Deep male
+  "us_male_noah": { google: "en-US-Neural2-I", eleven: "M3m6rJZy5B3ItN0Fcuxy", openai: "echo", locale: "en-US" },     // Resonant male
+
+  // UK Voices - distinct OpenAI mappings
+  "uk_female_emma": { google: "en-GB-Neural2-A", eleven: "EXAVITQu4vr4xnSDxMaL", openai: "alloy", locale: "en-GB" },   // Balanced female
+  "uk_male_oliver": { google: "en-GB-Neural2-D", eleven: "jsCqWAovK2LkecY7zXl4", openai: "fable", locale: "en-GB" },   // Expressive male
+  "uk_female_sophie": { google: "en-GB-Neural2-C", eleven: "LcfcDJNUP1GQjkzn1xUU", openai: "nova", locale: "en-GB" },    // Warm female
+  "uk_male_harry": { google: "en-GB-Neural2-B", eleven: "SOYHLrjzK2X1ezoPC6cr", openai: "onyx", locale: "en-GB" },    // Deep male
+
+  // Fallbacks
   "default_female": { google: "en-US-Neural2-F", eleven: "JBFqnCBsd6RMkjVDRZzb", openai: "nova", locale: "en-US" },
   "default_male": { google: "en-US-Neural2-D", eleven: "pNInz6obpgDQGcFmaJgB", openai: "onyx", locale: "en-US" }
 };
@@ -205,8 +210,9 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
       return res.json({
         ok: true,
         audioUrl: `data:audio/mpeg;base64,${audio.toString('base64')}`,
-        cached: true,
-        voice: voiceId || 'default'
+        provider: "CACHED",
+        voiceIdOrName: voiceId || 'default',
+        cached: true
       });
     }
 
@@ -277,7 +283,8 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
       ok: true,
       audioUrl: `data:audio/mpeg;base64,${audioBuffer.toString('base64')}`,
       provider: usedProvider,
-      voice: voiceId || 'default'
+      voiceIdOrName: voiceId || 'default',
+      cached: false
     });
 
   } catch (err) {
