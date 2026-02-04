@@ -18,6 +18,10 @@ if (!fs.existsSync(CACHE_DIR)) {
 const ONBOARDING_CACHE = new Map();
 const ONBOARDING_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
+// In-memory temporary audio storage
+const TEMP_AUDIO_STORE = new Map();
+const TEMP_AUDIO_TTL = 5 * 60 * 1000; // 5 minutes
+
 // Global clients
 let googleClient = null;
 let googleAuthReady = false;
@@ -206,15 +210,44 @@ function generateRequestId() {
   return crypto.randomUUID();
 }
 
+function generateAudioId() {
+  return crypto.randomBytes(16).toString('hex');
+}
+
 // Micro-cache cleanup (run every 5 minutes)
 setInterval(() => {
   const now = Date.now();
+
+  // Clean onboarding cache
   for (const [key, entry] of ONBOARDING_CACHE.entries()) {
     if (now - entry.timestamp > ONBOARDING_CACHE_TTL) {
       ONBOARDING_CACHE.delete(key);
     }
   }
+
+  // Clean temporary audio store
+  for (const [key, entry] of TEMP_AUDIO_STORE.entries()) {
+    if (now - entry.timestamp > TEMP_AUDIO_TTL) {
+      TEMP_AUDIO_STORE.delete(key);
+    }
+  }
 }, 5 * 60 * 1000);
+
+// --- AUDIO STREAMING ROUTE ---
+router.get("/tts/audio/:id", (req, res) => {
+  const { id } = req.params;
+
+  if (!TEMP_AUDIO_STORE.has(id)) {
+    return res.status(404).json({ error: "Audio not found or expired" });
+  }
+
+  const entry = TEMP_AUDIO_STORE.get(id);
+
+  res.setHeader('Content-Type', 'audio/mpeg');
+  res.setHeader('Content-Length', entry.buffer.length);
+  res.setHeader('Cache-Control', 'public, max-age=300'); // 5 min browser cache
+  res.send(entry.buffer);
+});
 
 // --- ROUTE ---
 router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"), async (req, res) => {
@@ -251,7 +284,12 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
         resolvedVoice: cached.resolvedVoice,
         requestId: requestId,
         cached: true,
-        timingMs: { tts: 0, total: totalTime }
+        timingMs: {
+          generationMs: 0,
+          encodeMs: 0,
+          totalMs: totalTime,
+          responseBytes: 0
+        }
       });
     }
 
@@ -266,7 +304,7 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
     let audioBuffer = null;
     let usedProvider = "NONE";
     const errors = {};
-    const ttsStartTime = Date.now();
+    const generationStartTime = Date.now();
 
     // TRY GOOGLE (Priority 1)
     if (googleAuthReady) {
@@ -309,7 +347,7 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
       }
     }
 
-    const ttsTime = Date.now() - ttsStartTime;
+    const generationTime = Date.now() - generationStartTime;
 
     // HANDLE FAILURE
     if (!audioBuffer) {
@@ -319,13 +357,29 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
         error: "All TTS providers failed",
         details: errors,
         requestId,
-        timingMs: { tts: ttsTime, total: Date.now() - startTime }
+        timingMs: {
+          generationMs: generationTime,
+          encodeMs: 0,
+          totalMs: Date.now() - startTime,
+          responseBytes: 0
+        }
       });
     }
 
-    // SUCCESS
-    const audioUrl = `data:audio/mpeg;base64,${audioBuffer.toString('base64')}`;
+    // SUCCESS - Store in temporary storage and return URL
+    const encodeStartTime = Date.now();
+    const audioId = generateAudioId();
+    const audioUrl = `/api/tts/audio/${audioId}`;
+
+    // Store audio buffer temporarily
+    TEMP_AUDIO_STORE.set(audioId, {
+      buffer: audioBuffer,
+      timestamp: Date.now()
+    });
+
+    const encodeTime = Date.now() - encodeStartTime;
     const totalTime = Date.now() - startTime;
+    const responseBytes = audioBuffer.length;
 
     // Cache onboarding prompts
     if (isOnboarding) {
@@ -335,10 +389,10 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
         resolvedVoice: voiceDef.openai || voiceDef.eleven || voiceDef.google,
         timestamp: Date.now()
       });
-      console.log(`[TTS] Onboarding cached (tts:${ttsTime}ms, total:${totalTime}ms)`);
+      console.log(`[TTS] Onboarding cached (gen:${generationTime}ms, encode:${encodeTime}ms, total:${totalTime}ms, bytes:${responseBytes})`);
     }
 
-    console.log(`[TTS] Success (tts:${ttsTime}ms, total:${totalTime}ms)`);
+    console.log(`[TTS] Success (gen:${generationTime}ms, encode:${encodeTime}ms, total:${totalTime}ms, bytes:${responseBytes})`);
 
     return res.json({
       ok: true,
@@ -348,7 +402,12 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
       resolvedVoice: voiceDef.openai || voiceDef.eleven || voiceDef.google,
       requestId: requestId,
       cached: false,
-      timingMs: { tts: ttsTime, total: totalTime }
+      timingMs: {
+        generationMs: generationTime,
+        encodeMs: encodeTime,
+        totalMs: totalTime,
+        responseBytes
+      }
     });
 
   } catch (err) {
@@ -357,7 +416,12 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
       ok: false,
       error: "Internal Server Error",
       detail: err.message,
-      timingMs: { tts: 0, total: Date.now() - startTime }
+      timingMs: {
+        generationMs: 0,
+        encodeMs: 0,
+        totalMs: Date.now() - startTime,
+        responseBytes: 0
+      }
     });
   }
 });
@@ -369,7 +433,8 @@ router.get("/health", (req, res) => {
     google: googleAuthReady,
     elevenlabs: !!elevenLabsKey,
     openai: !!openaiKey,
-    onboardingCacheSize: ONBOARDING_CACHE.size
+    onboardingCacheSize: ONBOARDING_CACHE.size,
+    tempAudioStoreSize: TEMP_AUDIO_STORE.size
   });
 });
 
