@@ -616,6 +616,14 @@ router.get("/mock-interview/limit-status", async (req, res) => {
     }
 });
 
+// GET /api/qa-mode - Frontend detection endpoint (no auth required)
+router.get("/qa-mode", (req, res) => {
+    const qaMode = process.env.MOCK_INTERVIEW_QA_MODE === 'true';
+    return res.json({
+        enabled: qaMode
+    });
+});
+
 // POST /api/mock-interview/start
 router.post("/mock-interview/start", async (req, res) => {
     try {
