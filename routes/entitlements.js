@@ -30,9 +30,9 @@ router.get("/entitlements", async (req, res) => {
             });
         }
 
-        // Fetch user data from Supabase
+        // Fetch user data from Supabase profile table
         const { data: user, error } = await supabase
-            .from('users')
+            .from('profile')
             .select('plan_status, trial_ends_at, free_mock_used_at, referral_mock_credits')
             .eq('id', userId)
             .single();

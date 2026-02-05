@@ -16,9 +16,9 @@ export async function checkMockInterviewEligibility(userId) {
     }
 
     try {
-        // Fetch user data
+        // Fetch user data from profile table
         const { data: user, error } = await supabase
-            .from('users')
+            .from('profile')
             .select('plan_status, trial_ends_at, free_mock_used_at, referral_mock_credits')
             .eq('id', userId)
             .single();
@@ -113,7 +113,7 @@ export async function consumeMockInterviewCredit(userId, reason) {
         if (reason === "REFERRAL_CREDIT") {
             // Decrement referral credit
             const { data, error } = await supabase
-                .from('users')
+                .from('profile')
                 .update({
                     referral_mock_credits: supabase.raw('referral_mock_credits - 1')
                 })
@@ -132,7 +132,7 @@ export async function consumeMockInterviewCredit(userId, reason) {
         } else if (reason === "FREE_ONE_TIME") {
             // Mark free one-time as used
             const { data, error } = await supabase
-                .from('users')
+                .from('profile')
                 .update({ free_mock_used_at: new Date().toISOString() })
                 .eq('id', userId)
                 .select()
