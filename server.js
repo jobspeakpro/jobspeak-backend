@@ -34,6 +34,7 @@ import voiceRoutes from "./voiceRoute.js";
 import referralRoutes from "./routes/referrals.js";
 import affiliateRoutes from "./routes/affiliates.js";
 import supportRoutes from "./routes/support.js";
+import qaModeRoutes from "./routes/qaMode.js";
 
 import { requestLogger } from "./middleware/logger.js";
 import { errorHandler } from "./middleware/errorHandler.js";
@@ -141,6 +142,7 @@ app.use("/voice", voiceRoutes);
 app.use("/api", referralRoutes);
 app.use("/api", affiliateRoutes);
 app.use("/api", supportRoutes);
+app.use("/api", qaModeRoutes);
 
 // Helper for direct access if needed
 app.use("/", affiliateRoutes); // For /affiliate/apply direct access
