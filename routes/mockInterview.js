@@ -618,7 +618,16 @@ router.get("/mock-interview/limit-status", async (req, res) => {
 
 // GET /api/qa-mode - Frontend detection endpoint (no auth required)
 router.get("/qa-mode", (req, res) => {
-    const qaMode = process.env.MOCK_INTERVIEW_QA_MODE === 'true';
+    // ⚠️⚠️⚠️ TEMPORARY FORCED QA MODE - 24 HOUR TESTING WINDOW ⚠️⚠️⚠️
+    // TODO: REVERT AFTER QA PASSES
+    const FORCED_QA_MODE = true; // HARDCODED FOR TESTING - REMOVE AFTER QA
+
+    if (FORCED_QA_MODE) {
+        console.log('🚨🚨🚨 [FORCED QA MODE] Auth bypass ENABLED - TEMPORARY TESTING ONLY 🚨🚨🚨');
+        console.log('[FORCED QA MODE] This should be reverted after QA testing is complete');
+    }
+
+    const qaMode = FORCED_QA_MODE || process.env.MOCK_INTERVIEW_QA_MODE === 'true';
     return res.json({
         enabled: qaMode
     });
