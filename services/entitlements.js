@@ -155,3 +155,36 @@ export async function consumeMockInterviewCredit(userId, reason) {
         return { success: false, error: error.message };
     }
 }
+
+/**
+ * Award referral credits to a user
+ * Called when a referral is confirmed
+ */
+export async function awardReferralCredit(userId, amount = 1) {
+    if (!userId) {
+        return { success: false, error: "No user ID" };
+    }
+
+    try {
+        const { data, error } = await supabase
+            .from('profile')
+            .update({
+                referral_mock_credits: supabase.raw(`referral_mock_credits + ${amount}`)
+            })
+            .eq('id', userId)
+            .select()
+            .single();
+
+        if (error) {
+            console.error('[ENTITLEMENTS] Error awarding referral credit:', error);
+            return { success: false, error: error.message };
+        }
+
+        console.log(`[ENTITLEMENTS] Awarded ${amount} referral credit(s) to user ${userId}`);
+        return { success: true, data };
+
+    } catch (error) {
+        console.error('[ENTITLEMENTS] Error awarding credit:', error);
+        return { success: false, error: error.message };
+    }
+}

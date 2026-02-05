@@ -1,36 +1,43 @@
 // jobspeak-backend/migrations/runMigrations.js
-import { supabase } from "../services/supabase.js";
+import pg from 'pg';
+const { Client } = pg;
 
 /**
  * Check if entitlements columns exist on profile table
  */
 async function checkEntitlementsColumns() {
+    const client = new Client({
+        connectionString: process.env.DATABASE_URL || process.env.SUPABASE_DB_URL
+    });
+
     try {
-        const { data, error } = await supabase.rpc('check_columns_exist', {
-            table_name: 'profile',
-            column_names: ['plan_status', 'trial_ends_at', 'free_mock_used_at', 'referral_mock_credits']
-        });
+        await client.connect();
 
-        if (error) {
-            // Fallback: Try to select from profile table with new columns
-            const { error: selectError } = await supabase
-                .from('profile')
-                .select('plan_status, trial_ends_at, free_mock_used_at, referral_mock_credits')
-                .limit(1);
+        // Check if columns exist by querying information_schema
+        const result = await client.query(`
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'profile' 
+            AND column_name IN ('plan_status', 'trial_ends_at', 'free_mock_used_at', 'referral_mock_credits')
+        `);
 
-            // If no error, columns exist
-            return !selectError;
-        }
+        await client.end();
 
-        return data;
+        // If we found all 4 columns, they exist
+        return result.rows.length === 4;
     } catch (error) {
-        console.error('[MIGRATION] Error checking columns:', error);
+        console.error('[MIGRATION] Error checking columns:', error.message);
+        try {
+            await client.end();
+        } catch (e) {
+            // Ignore cleanup errors
+        }
         return false;
     }
 }
 
 /**
- * Apply entitlements migration
+ * Apply entitlements migration using direct SQL
  */
 async function applyEntitlementsMigration() {
     console.log('[MIGRATION] 🚀 Starting entitlements migration...');
@@ -46,60 +53,84 @@ async function applyEntitlementsMigration() {
         CREATE INDEX IF NOT EXISTS idx_profile_trial_ends_at ON profile(trial_ends_at) WHERE trial_ends_at IS NOT NULL;
     `;
 
-    try {
-        // Execute migration using Supabase admin
-        const { error } = await supabase.rpc('exec_sql', { sql: migrationSQL });
+    const client = new Client({
+        connectionString: process.env.DATABASE_URL || process.env.SUPABASE_DB_URL
+    });
 
-        if (error) {
-            console.error('[MIGRATION] ❌ Failed to apply migration:', error);
-            console.error('[MIGRATION] Please run this SQL manually in Supabase SQL Editor:');
-            console.error(migrationSQL);
-            return false;
-        }
+    try {
+        await client.connect();
+        await client.query(migrationSQL);
+        await client.end();
 
         console.log('[MIGRATION] ✅ Successfully applied entitlements migration');
         console.log('[MIGRATION] Added columns: plan_status, trial_ends_at, free_mock_used_at, referral_mock_credits');
         return true;
 
     } catch (error) {
-        console.error('[MIGRATION] ❌ Migration error:', error);
+        console.error('[MIGRATION] ❌ Migration error:', error.message);
         console.error('[MIGRATION] Please run this SQL manually in Supabase SQL Editor:');
         console.error(migrationSQL);
+
+        try {
+            await client.end();
+        } catch (e) {
+            // Ignore cleanup errors
+        }
+
         return false;
     }
 }
 
 /**
  * Run migrations on startup if enabled
+ * NON-BLOCKING: Will not crash server if migration fails
  */
 export async function runStartupMigrations() {
     const shouldRunMigration = process.env.RUN_ENTITLEMENTS_MIGRATION === 'true';
 
     if (!shouldRunMigration) {
-        console.log('[MIGRATION] Skipping migrations (RUN_ENTITLEMENTS_MIGRATION not set)');
+        // Silent skip - no log spam
         return;
     }
 
     console.log('[MIGRATION] 🔍 Checking if entitlements migration is needed...');
 
-    // Check if columns already exist
-    const columnsExist = await checkEntitlementsColumns();
+    try {
+        // Add timeout to prevent hanging
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Migration timeout after 10s')), 10000)
+        );
 
-    if (columnsExist) {
-        console.log('[MIGRATION] ✅ Entitlements columns already exist, skipping migration');
-        console.log('[MIGRATION] ⚠️  You can now remove RUN_ENTITLEMENTS_MIGRATION env var');
-        return;
-    }
+        // Check if columns already exist
+        const columnsExist = await Promise.race([
+            checkEntitlementsColumns(),
+            timeoutPromise
+        ]);
 
-    console.log('[MIGRATION] 📝 Entitlements columns missing, applying migration...');
+        if (columnsExist) {
+            console.log('[MIGRATION] ✅ Entitlements columns already exist, skipping migration');
+            console.log('[MIGRATION] ⚠️  You can now remove RUN_ENTITLEMENTS_MIGRATION env var');
+            return;
+        }
 
-    // Apply migration
-    const success = await applyEntitlementsMigration();
+        console.log('[MIGRATION] 📝 Entitlements columns missing, applying migration...');
 
-    if (success) {
-        console.log('[MIGRATION] ✅ Migration complete!');
-        console.log('[MIGRATION] ⚠️  IMPORTANT: Remove RUN_ENTITLEMENTS_MIGRATION env var from Railway');
-    } else {
-        console.log('[MIGRATION] ❌ Migration failed - manual intervention required');
+        // Apply migration with timeout
+        const success = await Promise.race([
+            applyEntitlementsMigration(),
+            timeoutPromise
+        ]);
+
+        if (success) {
+            console.log('[MIGRATION] ✅ Migration complete!');
+            console.log('[MIGRATION] ⚠️  IMPORTANT: Remove RUN_ENTITLEMENTS_MIGRATION env var from Railway');
+        } else {
+            console.log('[MIGRATION] ❌ Migration failed - manual intervention required');
+        }
+
+    } catch (error) {
+        console.error('[MIGRATION] ❌ Migration error:', error.message);
+        console.error('[MIGRATION] ⚠️  Server will continue startup without migration');
+        // DO NOT throw - let server boot
     }
 }

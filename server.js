@@ -37,6 +37,10 @@ import supportRoutes from "./routes/support.js";
 import qaModeRoutes from "./routes/qaMode.js";
 import entitlementsRoutes from "./routes/entitlements.js";
 
+// --- MIGRATIONS ---
+import { runStartupMigrations } from "./migrations/runMigrations.js";
+
+// --- MIDDLEWARE ---
 import { requestLogger } from "./middleware/logger.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
