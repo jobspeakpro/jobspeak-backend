@@ -150,6 +150,8 @@ app.use("/api", supportRoutes);
 app.use("/api", qaModeRoutes);
 app.use("/api", entitlementsRoutes);
 
+console.log('[ENTITLEMENTS] ✅ Route mounted at /api/entitlements');
+
 // Helper for direct access if needed
 app.use("/", affiliateRoutes); // For /affiliate/apply direct access
 
