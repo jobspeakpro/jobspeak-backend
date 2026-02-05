@@ -807,11 +807,15 @@ router.post("/mock-interview/answer", upload.single('audioFile'), async (req, re
         // SECURITY: Replace insecure body.userKey with server-side auth
         const { userId: authUserId, isGuest } = await getAuthenticatedUser(req);
 
-        // TEMPORARY QA MODE: Bypass auth for testing
-        const QA_MODE = process.env.MOCK_INTERVIEW_QA_MODE === 'true';
+        // ⚠️⚠️⚠️ TEMPORARY FORCED QA MODE - 24 HOUR TESTING WINDOW ⚠️⚠️⚠️
+        const FORCED_QA_MODE = true; // HARDCODED FOR TESTING - REMOVE AFTER QA
+        const QA_MODE = FORCED_QA_MODE || process.env.MOCK_INTERVIEW_QA_MODE === 'true';
 
         if (QA_MODE) {
             console.log('[QA MODE] ⚠️  Auth bypassed for mock interview - TEMPORARY TESTING ONLY');
+            if (FORCED_QA_MODE) {
+                console.log('🚨 [FORCED QA MODE] Using hardcoded bypass - REVERT AFTER QA');
+            }
         }
 
         // CRITICAL: Block unauthenticated users/guests (unless QA mode)
