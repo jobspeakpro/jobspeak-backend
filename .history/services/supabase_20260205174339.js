@@ -28,6 +28,13 @@ if (!supabaseUrl || !supabaseKey) {
 
 export { supabase };
 
+// Export function to get Supabase client
+export function getSupabase() {
+    return supabase;
+}
+
+
+
 export async function getProfile(userKey) {
     // Assuming userKey is the UUID from profiles table (id)
     const { data, error } = await supabase
@@ -62,3 +69,62 @@ export async function upsertProfile(userKey, profileData) {
     }
     return data;
 }
+
+/**
+ * Create a user via Supabase Admin API (Service Role)
+ * Bypasses public signup rate limits and captcha
+ */
+export async function adminCreateUser({ email, password, user_metadata }) {
+    if (!supabase || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+        throw new Error("Supabase Service Role Key not configured");
+    }
+
+    const { data, error } = await supabase.auth.admin.createUser({
+        email,
+        password,
+        user_metadata,
+        email_confirm: false
+    });
+
+    if (error) throw error;
+    return data;
+}
+
+/**
+ * Generate a signup/verification link via Supabase Admin API
+ */
+export async function adminGenerateLink(email) {
+    if (!supabase || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+        throw new Error("Supabase Service Role Key not configured");
+    }
+
+    const { data, error } = await supabase.auth.admin.generateLink({
+        type: 'signup',
+        email
+    });
+
+    if (error) throw error;
+    return data;
+}
+
+/**
+ * Verify invite code helper
+ */
+export function verifyInviteCode(code) {
+    const validCode = process.env.SIGNUP_INVITE_CODE;
+    return validCode && code === validCode;
+}
+
+/**
+ * Real login via Supabase
+ */
+export async function signInUser({ email, password }) {
+    const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+    });
+
+    if (error) throw error;
+    return data;
+}
+

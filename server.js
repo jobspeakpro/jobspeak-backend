@@ -143,6 +143,7 @@ app.use("/voice", voiceRoutes);
 
 
 // NEW ROUTES
+app.use("/api/auth", authRoutes); // Backend-controlled signup
 app.use("/api", referralRoutes);
 app.use("/api", affiliateRoutes);
 app.use("/api", supportRoutes);
