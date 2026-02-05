@@ -823,236 +823,226 @@ router.post("/mock-interview/answer", upload.single('audioFile'), async (req, re
         const QA_MODE = (process.env.MOCK_INTERVIEW_QA_MODE === 'true' && process.env.NODE_ENV !== 'production');
 
         if (QA_MODE) {
-            console.log('[QA MODE] ⚠️  Auth bypassed - non-production only');
-        }
-
-        // CRITICAL: Block unauthenticated users/guests (unless QA mode)
-        if (!QA_MODE && (isGuest || !authUserId)) {
-            console.log(`[MOCK ANSWER] Unauthenticated request - rejecting`);
-            return res.status(401).json({
-                ok: false,
-                code: "AUTH_REQUIRED",
-                message: "Sign in to submit mock interview answers."
-            });
+            console.log('[QA MODE] ??  Auth bypassed - non-production only');
         }
 
         // Check entitlements (unless QA mode)
         if (!QA_MODE && authUserId) {
             const eligibility = await checkMockInterviewEligibility(authUserId);
             if (!eligibility.allowed) {
-                console.log(`[MOCK ANSWER] User ${authUserId} not eligible: ${eligibility.reason}`);
-                return res.status(403).json({
-                    ok: false,
-                    code: 'MOCK_NOT_ELIGIBLE',
-                    reason: eligibility.reason,
-                    message: "You don't have any mock interview credits remaining"
-                });
+                return res.status(403).json({ ok: false, code: 'MOCK_NOT_ELIGIBLE', reason: eligibility.reason });
             }
         }
+        return res.status(401).json({
+            ok: false,
+            code: "AUTH_REQUIRED",
+            message: "Sign in to submit mock interview answers."
+        });
+    }
 
         // Enforce authed user logic (or guest in QA mode)
         const user_id = QA_MODE && !authUserId ? null : authUserId;
-        const guest_key = QA_MODE && !authUserId ? `qa-guest-${Date.now()}` : null;
+    const guest_key = QA_MODE && !authUserId ? `qa-guest-${Date.now()}` : null;
 
-        console.log(`[MOCK ANSWER] ${QA_MODE ? '[QA MODE] ' : ''}Authenticated as: user_id=${user_id}, guest_key=${guest_key}`);
+    console.log(`[MOCK ANSWER] ${QA_MODE ? '[QA MODE] ' : ''}Authenticated as: user_id=${user_id}, guest_key=${guest_key}`);
 
-        // CRITICAL: Enforce free user limit (one completed mock interview total)
-        // Skip limit check in QA mode
-        if (user_id && !QA_MODE) {
-            // Check subscription status
-            const subscription = getSubscription(user_id);
-            const isPro = subscription?.isPro || false;
+    // CRITICAL: Enforce free user limit (one completed mock interview total)
+    // Skip limit check in QA mode
+    if (user_id && !QA_MODE) {
+        // Check subscription status
+        const subscription = getSubscription(user_id);
+        const isPro = subscription?.isPro || false;
 
-            if (!isPro) {
-                // Free user - check if they've already completed a mock interview in the last 7 days
-                console.log(`[MOCK ANSWER] Free user detected, checking weekly limit (last 7 days)...`);
+        if (!isPro) {
+            // Free user - check if they've already completed a mock interview in the last 7 days
+            console.log(`[MOCK ANSWER] Free user detected, checking weekly limit (last 7 days)...`);
 
-                const sevenDaysAgo = new Date();
-                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-                const sevenDaysAgoISO = sevenDaysAgo.toISOString();
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            const sevenDaysAgoISO = sevenDaysAgo.toISOString();
 
-                const { data: recentSessions, error: recentError } = await supabase
-                    .from('mock_sessions')
-                    .select('id')
-                    .eq('user_id', user_id)
-                    .eq('completed', true)
-                    .gte('created_at', sevenDaysAgoISO)
-                    .limit(1);
-
-                if (recentError) {
-                    console.error('[MOCK ANSWER] Error checking recent sessions:', recentError);
-                    // Don't block on error - fail open for better UX
-                } else if (recentSessions && recentSessions.length >= 1) {
-                    console.error(`[MOCK ANSWER] ❌ 403 Forbidden: Free user ${user_id} has already completed a mock interview this week`);
-                    return res.status(403).json({
-                        error: 'Free users can only complete one mock interview per week',
-                        code: 'FREE_LIMIT_REACHED',
-                        message: 'Free users can only complete one mock interview. Upgrade to continue.',
-                        upgrade: true
-                    });
-                }
-
-                console.log(`[MOCK ANSWER] ✓ Free user has not completed a mock interview yet`);
-            } else {
-                console.log(`[MOCK ANSWER] ✓ Pro user - unlimited mock interviews`);
-            }
-        }
-
-        // Ensure session exists
-        console.log(`[MOCK ANSWER] Checking for existing session: ${sessionId}`);
-        const { data: existingSession, error: sessionCheckError } = await supabase
-            .from('mock_sessions')
-            .select('*')
-            .eq('session_id', sessionId)
-            .single();
-
-        if (sessionCheckError && sessionCheckError.code !== 'PGRST116') {
-            console.error('[MOCK ANSWER] Error checking session:', sessionCheckError);
-        }
-
-        if (!existingSession) {
-            console.log(`[MOCK ANSWER] Session not found, creating new session`);
-            const { data: newSession, error: sessionError } = await supabase
+            const { data: recentSessions, error: recentError } = await supabase
                 .from('mock_sessions')
-                .insert({
-                    session_id: sessionId,
-                    user_id,
-                    guest_key,
-                    interview_type: interviewType || 'short',
-                    completed: false
-                })
-                .select()
-                .single();
+                .select('id')
+                .eq('user_id', user_id)
+                .eq('completed', true)
+                .gte('created_at', sevenDaysAgoISO)
+                .limit(1);
 
-            if (sessionError) {
-                console.error('[MOCK ANSWER] ❌ Session creation FAILED:', JSON.stringify(sessionError, null, 2));
-                return res.status(500).json({ error: 'Failed to create session', details: sessionError.message });
-            }
-            console.log(`[MOCK ANSWER] ✅ Session created successfully: ${newSession?.session_id}`);
-        } else {
-            console.log(`[MOCK ANSWER] ✅ Existing session found: ${existingSession.session_id}`);
-
-            // CRITICAL: Check if session is already completed (immutability enforcement)
-            // Completed sessions are immutable - reject new answers to prevent mixed attempts
-            if (existingSession.completed === true) {
-                console.error(`[MOCK ANSWER] ❌ 403 Forbidden: Session ${sessionId} is already completed`);
-                console.error(`[MOCK ANSWER] Rejecting answer for question ${questionId} - session is immutable`);
+            if (recentError) {
+                console.error('[MOCK ANSWER] Error checking recent sessions:', recentError);
+                // Don't block on error - fail open for better UX
+            } else if (recentSessions && recentSessions.length >= 1) {
+                console.error(`[MOCK ANSWER] ❌ 403 Forbidden: Free user ${user_id} has already completed a mock interview this week`);
                 return res.status(403).json({
-                    error: 'Session is completed and cannot accept new answers',
-                    code: 'SESSION_COMPLETED',
-                    message: 'This mock interview has already been completed. Please start a new interview.',
-                    sessionId: sessionId
+                    error: 'Free users can only complete one mock interview per week',
+                    code: 'FREE_LIMIT_REACHED',
+                    message: 'Free users can only complete one mock interview. Upgrade to continue.',
+                    upgrade: true
                 });
             }
+
+            console.log(`[MOCK ANSWER] ✓ Free user has not completed a mock interview yet`);
+        } else {
+            console.log(`[MOCK ANSWER] ✓ Pro user - unlimited mock interviews`);
         }
+    }
 
-        // CRITICAL: Reject empty answers (bulletproof validation)
-        const trimmedAnswer = normalizedAnswer.trim();
-        if (!trimmedAnswer || trimmedAnswer.length === 0) {
-            console.error(`[MOCK ANSWER] ❌ 400 Bad Request: Empty answer after normalization`);
-            return res.status(400).json({
-                error: 'Answer text is required and cannot be empty',
-                field: 'answerText'
-            });
-        }
+    // Ensure session exists
+    console.log(`[MOCK ANSWER] Checking for existing session: ${sessionId}`);
+    const { data: existingSession, error: sessionCheckError } = await supabase
+        .from('mock_sessions')
+        .select('*')
+        .eq('session_id', sessionId)
+        .single();
 
-        console.log(`[MOCK ANSWER] Normalized answer length: ${trimmedAnswer.length}`);
+    if (sessionCheckError && sessionCheckError.code !== 'PGRST116') {
+        console.error('[MOCK ANSWER] Error checking session:', sessionCheckError);
+    }
 
-        // Evaluate answer
-        const evaluation = evaluateAnswer(questionText, normalizedAnswer);
-
-        // --- INTELLIGENT FEEDBACK GENERATION ---
-        const fullVocabulary = generateRoleVocabulary(questionText, normalizedAnswer);
-        const rewriteObj = generateSTARRewrite(questionText, normalizedAnswer, evaluation.score, evaluation.feedback, fullVocabulary);
-        const improveNext = generateActionableImprovements(evaluation.feedback, normalizedAnswer, evaluation.score);
-        const signals = generateSignalBasedFeedback(evaluation.feedback, normalizedAnswer);
-        const interpretation = generateHiringManagerInterpretation(evaluation.score, evaluation.feedback, normalizedAnswer);
-
-        const usedVocab = rewriteObj.usedVocabulary || fullVocabulary.slice(0, 2);
-
-        // SAFETY CHECK: Ensure we're not accidentally saving rewrite as answer_text
-        if (normalizedAnswer === rewriteObj.text && normalizedAnswer.length > 0) {
-            console.error(`[MOCK ANSWER] ❌ CRITICAL: normalizedAnswer matches rewrite! This is a bug.`);
-            console.error(`[MOCK ANSWER] normalizedAnswer: "${normalizedAnswer.substring(0, 100)}"`);
-            console.error(`[MOCK ANSWER] rewriteObj.text: "${rewriteObj.text.substring(0, 100)}"`);
-        }
-
-        // UPSERT attempt (insert or update if session_id + question_id already exists)
-        console.log(`MOCK_ATTEMPT_UPSERT sessionId=${sessionId} questionId=${questionId}`);
-        const { data: attempt, error: attemptError } = await supabase
-            .from('mock_attempts')
-            .upsert({
+    if (!existingSession) {
+        console.log(`[MOCK ANSWER] Session not found, creating new session`);
+        const { data: newSession, error: sessionError } = await supabase
+            .from('mock_sessions')
+            .insert({
                 session_id: sessionId,
-                question_id: questionId,
-                question_text: questionText,
-                answer_text: normalizedAnswer, // ALWAYS persist normalized answer
-                audio_url: audioUrl,
-                score: evaluation.score,
-                feedback: evaluation.feedback,
-                bullets: evaluation.bullets,
-                clearer_rewrite: rewriteObj.text,
-                vocabulary: usedVocab,
-                what_worked: signals,
-                improve_next: improveNext,
-                hiring_manager_heard: interpretation
-            }, {
-                onConflict: 'session_id,question_id', // Unique constraint columns
-                ignoreDuplicates: false // Update existing row instead of ignoring
+                user_id,
+                guest_key,
+                interview_type: interviewType || 'short',
+                completed: false
             })
             .select()
             .single();
 
-        if (attemptError) {
-            console.error('[MOCK ANSWER] ❌ ATTEMPT UPSERT FAILED:');
-            console.error('Error Code:', attemptError.code);
-            console.error('Error Message:', attemptError.message);
-            console.error('Error Details:', JSON.stringify(attemptError, null, 2));
-            return res.status(500).json({
-                error: 'Failed to save answer',
-                code: attemptError.code,
-                details: attemptError.message
+        if (sessionError) {
+            console.error('[MOCK ANSWER] ❌ Session creation FAILED:', JSON.stringify(sessionError, null, 2));
+            return res.status(500).json({ error: 'Failed to create session', details: sessionError.message });
+        }
+        console.log(`[MOCK ANSWER] ✅ Session created successfully: ${newSession?.session_id}`);
+    } else {
+        console.log(`[MOCK ANSWER] ✅ Existing session found: ${existingSession.session_id}`);
+
+        // CRITICAL: Check if session is already completed (immutability enforcement)
+        // Completed sessions are immutable - reject new answers to prevent mixed attempts
+        if (existingSession.completed === true) {
+            console.error(`[MOCK ANSWER] ❌ 403 Forbidden: Session ${sessionId} is already completed`);
+            console.error(`[MOCK ANSWER] Rejecting answer for question ${questionId} - session is immutable`);
+            return res.status(403).json({
+                error: 'Session is completed and cannot accept new answers',
+                code: 'SESSION_COMPLETED',
+                message: 'This mock interview has already been completed. Please start a new interview.',
+                sessionId: sessionId
             });
         }
-
-        console.log(`[MOCK ANSWER] ✅ ATTEMPT UPSERTED: id=${attempt.id}, score=${attempt.score}, answer_length=${normalizedAnswer.length}`);
-
-        // DEBUG: Verify verbatim transcript is preserved separately from rewrite
-        const savedTranscript = attempt.answer_text || '';
-        const savedRewrite = attempt.clearer_rewrite || '';
-        console.log(`[MOCK ANSWER] 📝 Saved transcript: length=${savedTranscript.length} preview="${savedTranscript.substring(0, 60)}${savedTranscript.length > 60 ? '...' : ''}"`);
-        console.log(`[MOCK ANSWER] ✨ Saved rewrite: length=${savedRewrite.length} preview="${savedRewrite.substring(0, 60)}${savedRewrite.length > 60 ? '...' : ''}"`);
-
-        if (savedTranscript === savedRewrite && savedTranscript.length > 0) {
-            console.warn(`[MOCK ANSWER] ⚠️ WARNING: Transcript and rewrite are identical! This should not happen.`);
-        }
-
-        // Get session progress
-        const { data: attempts } = await supabase
-            .from('mock_attempts')
-            .select('*')
-            .eq('session_id', sessionId);
-
-        const progress = {
-            answered: attempts?.length || 1,
-            score: evaluation.score,
-            feedback: evaluation.bullets
-        };
-
-        return res.json({
-            success: true,
-            score: evaluation.score,
-            feedback: evaluation.bullets,
-            progress,
-            // Return full data for immediate UI update if needed
-            rewrite: rewriteObj.text,
-            vocabulary: usedVocab,
-            interpretation
-        });
-
-    } catch (error) {
-        console.error("Error saving mock interview answer:", error);
-        return res.status(500).json({ error: "Failed to save answer" });
     }
+
+    // CRITICAL: Reject empty answers (bulletproof validation)
+    const trimmedAnswer = normalizedAnswer.trim();
+    if (!trimmedAnswer || trimmedAnswer.length === 0) {
+        console.error(`[MOCK ANSWER] ❌ 400 Bad Request: Empty answer after normalization`);
+        return res.status(400).json({
+            error: 'Answer text is required and cannot be empty',
+            field: 'answerText'
+        });
+    }
+
+    console.log(`[MOCK ANSWER] Normalized answer length: ${trimmedAnswer.length}`);
+
+    // Evaluate answer
+    const evaluation = evaluateAnswer(questionText, normalizedAnswer);
+
+    // --- INTELLIGENT FEEDBACK GENERATION ---
+    const fullVocabulary = generateRoleVocabulary(questionText, normalizedAnswer);
+    const rewriteObj = generateSTARRewrite(questionText, normalizedAnswer, evaluation.score, evaluation.feedback, fullVocabulary);
+    const improveNext = generateActionableImprovements(evaluation.feedback, normalizedAnswer, evaluation.score);
+    const signals = generateSignalBasedFeedback(evaluation.feedback, normalizedAnswer);
+    const interpretation = generateHiringManagerInterpretation(evaluation.score, evaluation.feedback, normalizedAnswer);
+
+    const usedVocab = rewriteObj.usedVocabulary || fullVocabulary.slice(0, 2);
+
+    // SAFETY CHECK: Ensure we're not accidentally saving rewrite as answer_text
+    if (normalizedAnswer === rewriteObj.text && normalizedAnswer.length > 0) {
+        console.error(`[MOCK ANSWER] ❌ CRITICAL: normalizedAnswer matches rewrite! This is a bug.`);
+        console.error(`[MOCK ANSWER] normalizedAnswer: "${normalizedAnswer.substring(0, 100)}"`);
+        console.error(`[MOCK ANSWER] rewriteObj.text: "${rewriteObj.text.substring(0, 100)}"`);
+    }
+
+    // UPSERT attempt (insert or update if session_id + question_id already exists)
+    console.log(`MOCK_ATTEMPT_UPSERT sessionId=${sessionId} questionId=${questionId}`);
+    const { data: attempt, error: attemptError } = await supabase
+        .from('mock_attempts')
+        .upsert({
+            session_id: sessionId,
+            question_id: questionId,
+            question_text: questionText,
+            answer_text: normalizedAnswer, // ALWAYS persist normalized answer
+            audio_url: audioUrl,
+            score: evaluation.score,
+            feedback: evaluation.feedback,
+            bullets: evaluation.bullets,
+            clearer_rewrite: rewriteObj.text,
+            vocabulary: usedVocab,
+            what_worked: signals,
+            improve_next: improveNext,
+            hiring_manager_heard: interpretation
+        }, {
+            onConflict: 'session_id,question_id', // Unique constraint columns
+            ignoreDuplicates: false // Update existing row instead of ignoring
+        })
+        .select()
+        .single();
+
+    if (attemptError) {
+        console.error('[MOCK ANSWER] ❌ ATTEMPT UPSERT FAILED:');
+        console.error('Error Code:', attemptError.code);
+        console.error('Error Message:', attemptError.message);
+        console.error('Error Details:', JSON.stringify(attemptError, null, 2));
+        return res.status(500).json({
+            error: 'Failed to save answer',
+            code: attemptError.code,
+            details: attemptError.message
+        });
+    }
+
+    console.log(`[MOCK ANSWER] ✅ ATTEMPT UPSERTED: id=${attempt.id}, score=${attempt.score}, answer_length=${normalizedAnswer.length}`);
+
+    // DEBUG: Verify verbatim transcript is preserved separately from rewrite
+    const savedTranscript = attempt.answer_text || '';
+    const savedRewrite = attempt.clearer_rewrite || '';
+    console.log(`[MOCK ANSWER] 📝 Saved transcript: length=${savedTranscript.length} preview="${savedTranscript.substring(0, 60)}${savedTranscript.length > 60 ? '...' : ''}"`);
+    console.log(`[MOCK ANSWER] ✨ Saved rewrite: length=${savedRewrite.length} preview="${savedRewrite.substring(0, 60)}${savedRewrite.length > 60 ? '...' : ''}"`);
+
+    if (savedTranscript === savedRewrite && savedTranscript.length > 0) {
+        console.warn(`[MOCK ANSWER] ⚠️ WARNING: Transcript and rewrite are identical! This should not happen.`);
+    }
+
+    // Get session progress
+    const { data: attempts } = await supabase
+        .from('mock_attempts')
+        .select('*')
+        .eq('session_id', sessionId);
+
+    const progress = {
+        answered: attempts?.length || 1,
+        score: evaluation.score,
+        feedback: evaluation.bullets
+    };
+
+    return res.json({
+        success: true,
+        score: evaluation.score,
+        feedback: evaluation.bullets,
+        progress,
+        // Return full data for immediate UI update if needed
+        rewrite: rewriteObj.text,
+        vocabulary: usedVocab,
+        interpretation
+    });
+
+} catch (error) {
+    console.error("Error saving mock interview answer:", error);
+    return res.status(500).json({ error: "Failed to save answer" });
+}
 });
 
 // GET /api/mock-interview/summary?sessionId=...

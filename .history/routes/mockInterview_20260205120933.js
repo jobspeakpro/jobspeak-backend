@@ -619,14 +619,19 @@ router.get("/mock-interview/limit-status", async (req, res) => {
 
 // GET /api/qa-mode - Frontend detection endpoint (no auth required)
 router.get("/qa-mode", (req, res) => {
-    // SAFE QA MODE: Only enabled in non-production with env var
-    const qaMode = (process.env.MOCK_INTERVIEW_QA_MODE === 'true' && process.env.NODE_ENV !== 'production');
+    // ⚠️⚠️⚠️ TEMPORARY FORCED QA MODE - 24 HOUR TESTING WINDOW ⚠️⚠️⚠️
+    // TODO: REVERT AFTER QA PASSES
+    const FORCED_QA_MODE = true; // HARDCODED FOR TESTING - REMOVE AFTER QA
 
-    if (qaMode) {
-        console.log('[QA MODE] ⚠️  QA mode active - non-production only');
+    if (FORCED_QA_MODE) {
+        console.log('🚨🚨🚨 [FORCED QA MODE] Auth bypass ENABLED - TEMPORARY TESTING ONLY 🚨🚨🚨');
+        console.log('[FORCED QA MODE] This should be reverted after QA testing is complete');
     }
 
-    return res.json({ enabled: qaMode });
+    const qaMode = FORCED_QA_MODE || process.env.MOCK_INTERVIEW_QA_MODE === 'true';
+    return res.json({
+        enabled: qaMode
+    });
 });
 
 // POST /api/mock-interview/start
@@ -819,11 +824,15 @@ router.post("/mock-interview/answer", upload.single('audioFile'), async (req, re
         // SECURITY: Replace insecure body.userKey with server-side auth
         const { userId: authUserId, isGuest } = await getAuthenticatedUser(req);
 
-        // SAFE QA MODE: Only enabled in non-production with env var
-        const QA_MODE = (process.env.MOCK_INTERVIEW_QA_MODE === 'true' && process.env.NODE_ENV !== 'production');
+        // ⚠️⚠️⚠️ TEMPORARY FORCED QA MODE - 24 HOUR TESTING WINDOW ⚠️⚠️⚠️
+        const FORCED_QA_MODE = true; // HARDCODED FOR TESTING - REMOVE AFTER QA
+        const QA_MODE = FORCED_QA_MODE || process.env.MOCK_INTERVIEW_QA_MODE === 'true';
 
         if (QA_MODE) {
-            console.log('[QA MODE] ⚠️  Auth bypassed - non-production only');
+            console.log('[QA MODE] ⚠️  Auth bypassed for mock interview - TEMPORARY TESTING ONLY');
+            if (FORCED_QA_MODE) {
+                console.log('🚨 [FORCED QA MODE] Using hardcoded bypass - REVERT AFTER QA');
+            }
         }
 
         // CRITICAL: Block unauthenticated users/guests (unless QA mode)
@@ -834,20 +843,6 @@ router.post("/mock-interview/answer", upload.single('audioFile'), async (req, re
                 code: "AUTH_REQUIRED",
                 message: "Sign in to submit mock interview answers."
             });
-        }
-
-        // Check entitlements (unless QA mode)
-        if (!QA_MODE && authUserId) {
-            const eligibility = await checkMockInterviewEligibility(authUserId);
-            if (!eligibility.allowed) {
-                console.log(`[MOCK ANSWER] User ${authUserId} not eligible: ${eligibility.reason}`);
-                return res.status(403).json({
-                    ok: false,
-                    code: 'MOCK_NOT_ELIGIBLE',
-                    reason: eligibility.reason,
-                    message: "You don't have any mock interview credits remaining"
-                });
-            }
         }
 
         // Enforce authed user logic (or guest in QA mode)

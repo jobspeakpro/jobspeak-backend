@@ -8,7 +8,6 @@ import {
 } from "../services/db.js";
 import { getProfile, supabase } from "../services/supabase.js";
 import { getAuthenticatedUser } from "../middleware/auth.js";
-import { checkMockInterviewEligibility, consumeMockInterviewCredit } from "../services/entitlements.js";
 import { generateMockInterviewQuestions } from "../services/personalizedQuestionSelector.js";
 import { evaluateAnswer } from "../services/answerEvaluator.js";
 import { generateSessionSummary, getHiringRecommendation } from "../services/summaryGenerator.js";
@@ -617,76 +616,48 @@ router.get("/mock-interview/limit-status", async (req, res) => {
     }
 });
 
-// GET /api/qa-mode - Frontend detection endpoint (no auth required)
-router.get("/qa-mode", (req, res) => {
-    // SAFE QA MODE: Only enabled in non-production with env var
-    const qaMode = (process.env.MOCK_INTERVIEW_QA_MODE === 'true' && process.env.NODE_ENV !== 'production');
-
-    if (qaMode) {
-        console.log('[QA MODE] ⚠️  QA mode active - non-production only');
-    }
-
-    return res.json({ enabled: qaMode });
-});
-
 // POST /api/mock-interview/start
 router.post("/mock-interview/start", async (req, res) => {
     try {
-        const { interviewType } = req.body;
+        let { userKey, interviewType } = req.body;
+
+        // Guest-friendly: generate guest key if missing
+        if (!userKey) {
+            userKey = `guest-${Date.now()}`;
+            console.log(`[MOCK START] Generated guest key: ${userKey}`);
+        }
 
         if (!interviewType || !['short', 'long'].includes(interviewType)) {
             return res.status(400).json({ error: "interviewType must be 'short' or 'long'" });
         }
 
-        // Get authenticated user
-        const { userId, isGuest } = await getAuthenticatedUser(req);
+        // Check if user is Pro
+        const subscription = getSubscription(userKey);
+        const isPro = subscription?.isPro || false;
 
-        // Check QA mode bypass
-        const QA_MODE = (
-            process.env.MOCK_INTERVIEW_QA_MODE === 'true' &&
-            process.env.NODE_ENV !== 'production'
-        );
-
-        if (QA_MODE) {
-            console.log('[QA MODE] Bypassing entitlements check for /start');
-            return res.json({
-                allowed: true,
-                reason: "QA_MODE",
-                message: "Mock interview started in QA mode"
-            });
+        if (isPro) {
+            // Pro users always allowed
+            return res.json({ allowed: true, reason: "pro_unlimited" });
         }
 
-        // Check eligibility using entitlements system
-        const eligibility = await checkMockInterviewEligibility(userId);
+        // Check if free attempt already used
+        const attempt = getMockInterviewAttempt(userKey);
 
-        if (!eligibility.allowed) {
-            console.log(`[MOCK START] User ${userId || 'guest'} not eligible: ${eligibility.reason}`);
+        if (attempt.used === 1) {
+            // Free attempt already used - require upgrade
             return res.status(403).json({
-                ok: false,
-                code: "MOCK_NOT_ELIGIBLE",
-                reason: eligibility.reason,
-                message: eligibility.reason === "AUTH_REQUIRED"
-                    ? "Sign in to start mock interview"
-                    : "You don't have any mock interview credits remaining"
+                upgrade: true,
+                reason: "mock_interview_limit"
             });
         }
 
-        // Consume credit if using referral or free one-time
-        if (eligibility.reason === "REFERRAL_CREDIT" || eligibility.reason === "FREE_ONE_TIME") {
-            const consumption = await consumeMockInterviewCredit(userId, eligibility.reason);
-            if (!consumption.success) {
-                console.error(`[MOCK START] Failed to consume credit:`, consumption.error);
-                // Continue anyway - don't block user
-            } else {
-                console.log(`[MOCK START] Consumed credit for user ${userId}: ${eligibility.reason}`);
-            }
-        }
+        // Mark attempt as used
+        markMockInterviewUsed(userKey);
 
         return res.json({
             allowed: true,
-            reason: eligibility.reason,
-            remaining: eligibility.remaining - 1, // Decremented after consumption
-            message: "Mock interview started successfully"
+            reason: "free_attempt",
+            message: "Mock interview started. This is your one free attempt."
         });
     } catch (error) {
         console.error("Error starting mock interview:", error);
@@ -819,11 +790,11 @@ router.post("/mock-interview/answer", upload.single('audioFile'), async (req, re
         // SECURITY: Replace insecure body.userKey with server-side auth
         const { userId: authUserId, isGuest } = await getAuthenticatedUser(req);
 
-        // SAFE QA MODE: Only enabled in non-production with env var
-        const QA_MODE = (process.env.MOCK_INTERVIEW_QA_MODE === 'true' && process.env.NODE_ENV !== 'production');
+        // TEMPORARY QA MODE: Bypass auth for testing
+        const QA_MODE = process.env.MOCK_INTERVIEW_QA_MODE === 'true';
 
         if (QA_MODE) {
-            console.log('[QA MODE] ⚠️  Auth bypassed - non-production only');
+            console.log('[QA MODE] ⚠️  Auth bypassed for mock interview - TEMPORARY TESTING ONLY');
         }
 
         // CRITICAL: Block unauthenticated users/guests (unless QA mode)
@@ -834,20 +805,6 @@ router.post("/mock-interview/answer", upload.single('audioFile'), async (req, re
                 code: "AUTH_REQUIRED",
                 message: "Sign in to submit mock interview answers."
             });
-        }
-
-        // Check entitlements (unless QA mode)
-        if (!QA_MODE && authUserId) {
-            const eligibility = await checkMockInterviewEligibility(authUserId);
-            if (!eligibility.allowed) {
-                console.log(`[MOCK ANSWER] User ${authUserId} not eligible: ${eligibility.reason}`);
-                return res.status(403).json({
-                    ok: false,
-                    code: 'MOCK_NOT_ELIGIBLE',
-                    reason: eligibility.reason,
-                    message: "You don't have any mock interview credits remaining"
-                });
-            }
         }
 
         // Enforce authed user logic (or guest in QA mode)
