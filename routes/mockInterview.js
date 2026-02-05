@@ -790,8 +790,15 @@ router.post("/mock-interview/answer", upload.single('audioFile'), async (req, re
         // SECURITY: Replace insecure body.userKey with server-side auth
         const { userId: authUserId, isGuest } = await getAuthenticatedUser(req);
 
-        // CRITICAL: Block unauthenticated users/guests
-        if (isGuest || !authUserId) {
+        // TEMPORARY QA MODE: Bypass auth for testing
+        const QA_MODE = process.env.MOCK_INTERVIEW_QA_MODE === 'true';
+
+        if (QA_MODE) {
+            console.log('[QA MODE] ⚠️  Auth bypassed for mock interview - TEMPORARY TESTING ONLY');
+        }
+
+        // CRITICAL: Block unauthenticated users/guests (unless QA mode)
+        if (!QA_MODE && (isGuest || !authUserId)) {
             console.log(`[MOCK ANSWER] Unauthenticated request - rejecting`);
             return res.status(401).json({
                 ok: false,
@@ -800,15 +807,15 @@ router.post("/mock-interview/answer", upload.single('audioFile'), async (req, re
             });
         }
 
-        // Enforce authed user logic
-        const user_id = authUserId;
-        const guest_key = null; // Guests are no longer allowed
+        // Enforce authed user logic (or guest in QA mode)
+        const user_id = QA_MODE && !authUserId ? null : authUserId;
+        const guest_key = QA_MODE && !authUserId ? `qa-guest-${Date.now()}` : null;
 
-        console.log(`[MOCK ANSWER] Authenticated as: user_id=${user_id}`);
+        console.log(`[MOCK ANSWER] ${QA_MODE ? '[QA MODE] ' : ''}Authenticated as: user_id=${user_id}, guest_key=${guest_key}`);
 
         // CRITICAL: Enforce free user limit (one completed mock interview total)
-        // Check if this is a free user and if they've already completed a mock interview
-        if (user_id) {
+        // Skip limit check in QA mode
+        if (user_id && !QA_MODE) {
             // Check subscription status
             const subscription = getSubscription(user_id);
             const isPro = subscription?.isPro || false;
