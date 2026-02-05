@@ -152,7 +152,21 @@ app.use("/", affiliateRoutes); // For /affiliate/apply direct access
 // Error handling
 app.use(errorHandler);
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ Backend listening on 0.0.0.0:${PORT}`);
-  console.log(`[DEPLOY] Full-Restore-Final`);
-});
+// Start server with migrations
+async function startServer() {
+  try {
+    // Run startup migrations if enabled
+    await runStartupMigrations();
+
+    // Start listening
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`✅ Backend listening on 0.0.0.0:${PORT}`);
+      console.log(`[DEPLOY] Entitlements-Migration-Runner`);
+    });
+  } catch (error) {
+    console.error('❌ Server startup failed:', error);
+    process.exit(1);
+  }
+}
+
+startServer();
