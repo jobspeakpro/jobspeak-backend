@@ -83,7 +83,7 @@ async function applyEntitlementsMigration() {
 
 /**
  * Run migrations on startup if enabled
- * NON-BLOCKING: Will not crash server if migration fails
+ * CRITICAL: This is NON-BLOCKING and will NEVER prevent server boot
  */
 export async function runStartupMigrations() {
     const shouldRunMigration = process.env.RUN_ENTITLEMENTS_MIGRATION === 'true';
@@ -96,7 +96,7 @@ export async function runStartupMigrations() {
     console.log('[MIGRATION] 🔍 Checking if entitlements migration is needed...');
 
     try {
-        // Add timeout to prevent hanging
+        // Add timeout to prevent hanging (10s max)
         const timeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Migration timeout after 10s')), 10000)
         );
@@ -131,6 +131,6 @@ export async function runStartupMigrations() {
     } catch (error) {
         console.error('[MIGRATION] ❌ Migration error:', error.message);
         console.error('[MIGRATION] ⚠️  Server will continue startup without migration');
-        // DO NOT throw - let server boot
+        // CRITICAL: DO NOT throw - let server boot
     }
 }
