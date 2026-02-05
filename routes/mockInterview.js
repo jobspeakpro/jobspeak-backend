@@ -793,9 +793,10 @@ router.post("/mock-interview/answer", upload.single('audioFile'), async (req, re
         // CRITICAL: Block unauthenticated users/guests
         if (isGuest || !authUserId) {
             console.log(`[MOCK ANSWER] Unauthenticated request - rejecting`);
-            return res.status(403).json({
-                error: "Authentication required to submit answers",
-                code: "AUTH_REQUIRED"
+            return res.status(401).json({
+                ok: false,
+                code: "AUTH_REQUIRED",
+                message: "Sign in to submit mock interview answers."
             });
         }
 
