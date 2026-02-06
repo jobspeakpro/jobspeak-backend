@@ -93,22 +93,44 @@ export async function adminCreateUser({ email, password, user_metadata }) {
 }
 
 /**
- * Generate a signup/verification link via Supabase Admin API
+ * Generate a signup/verification link via Supabase Admin REST API
+ * Using direct REST instead of SDK for deterministic behavior
  */
-export async function adminGenerateLink(email) {
-    if (!supabase || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+export async function adminGenerateLink({ email, password, redirectTo }) {
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
         const error = new Error("Supabase Service Role Key not configured");
         error.code = 'CONFIG_ERROR';
         throw error;
     }
 
-    const { data, error } = await supabase.auth.admin.generateLink({
-        type: 'signup',
-        email
+    const url = `${process.env.SUPABASE_URL}/auth/v1/admin/generate_link`;
+
+    const res = await fetch(url, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            apikey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+        },
+        body: JSON.stringify({
+            type: "signup",
+            email,
+            password,
+            options: { redirectTo },
+        }),
     });
 
-    if (error) throw error;
-    return data;
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok || !data?.action_link) {
+        console.log("[AUTH-SIGNUP] generate_link REST failed", {
+            status: res.status,
+            data,
+        });
+        throw new Error(`GENERATE_LINK_REST_FAILED:${res.status}`);
+    }
+
+    return data.action_link;
 }
 
 /**

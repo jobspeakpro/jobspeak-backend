@@ -92,13 +92,11 @@ router.post("/signup", rateLimiter(5, 60 * 60 * 1000, (req) => `signup:${req.ip}
     // 4. Generate Link via Admin API - FAIL HARD if this fails
     let actionLink;
     try {
-      const linkResult = await adminGenerateLink(email);
-      actionLink = linkResult?.action_link;
-
-      // CRITICAL: Fail hard if actionLink is missing
-      if (!actionLink || typeof actionLink !== 'string') {
-        throw new Error(`adminGenerateLink returned invalid actionLink: ${JSON.stringify(linkResult)}`);
-      }
+      actionLink = await adminGenerateLink({
+        email,
+        password,
+        redirectTo: 'https://jobspeakpro.com/auth/callback'
+      });
 
       console.log(`[AUTH-SIGNUP] generated actionLink: ${actionLink.substring(0, 50)}...`);
     } catch (linkErr) {
