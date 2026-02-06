@@ -18,6 +18,8 @@ const router = express.Router();
  */
 router.post("/signup", rateLimiter(5, 60 * 60 * 1000, (req) => `signup:${req.ip}`), async (req, res) => {
   res.setHeader('X-Origin', 'railway-auth');
+  res.setHeader('Cache-Control', 'no-store');
+
   const { email, password, firstName, inviteCode } = req.body || {};
 
   console.log(`[AUTH-SIGNUP] Attempt for email: ${email}`);
@@ -48,7 +50,7 @@ router.post("/signup", rateLimiter(5, 60 * 60 * 1000, (req) => `signup:${req.ip}
     console.log(`[AUTH-SIGNUP] generated actionLink`);
 
     // 5. Success Response
-    res.setHeader('X-Origin', 'railway-auth');
+    // Headers already set at start
     return res.json({
       ok: true,
       email,
@@ -58,12 +60,14 @@ router.post("/signup", rateLimiter(5, 60 * 60 * 1000, (req) => `signup:${req.ip}
   } catch (err) {
     console.error(`[AUTH-SIGNUP] Error:`, err);
 
+    // Ensure headers present on error too (already set at top, but just in case of weird flow)
     res.setHeader('X-Origin', 'railway-auth');
+
     const errorMessage = err.message || "Signup failed";
 
     // Handle Config Error
     if (err.code === 'CONFIG_ERROR') {
-      return res.status(500).json({ ok: false, code: 'CONFIG_ERROR', message: errorMessage });
+      return res.status(500).json({ ok: false, code: 'CONFIG_ERROR', message: "Server not configured." });
     }
 
     // Handle Supabase errors
