@@ -47,6 +47,7 @@ router.post("/signup", rateLimiter(5, 60 * 60 * 1000, (req) => `signup:${req.ip}
     console.log(`[AUTH-SIGNUP] generated actionLink`);
 
     // 5. Success Response
+    res.setHeader('X-Origin', 'railway-auth');
     return res.json({
       ok: true,
       email,
@@ -56,6 +57,7 @@ router.post("/signup", rateLimiter(5, 60 * 60 * 1000, (req) => `signup:${req.ip}
   } catch (err) {
     console.error(`[AUTH-SIGNUP] Error:`, err);
 
+    res.setHeader('X-Origin', 'railway-auth');
     const errorMessage = err.message || "Signup failed";
 
     // Handle Config Error
@@ -86,6 +88,8 @@ router.post("/signup", rateLimiter(5, 60 * 60 * 1000, (req) => `signup:${req.ip}
 router.post("/login", async (req, res) => {
   const { email, password } = req.body || {};
 
+  res.setHeader('X-Origin', 'railway-auth');
+
   if (!email || !password) {
     return res.status(400).json({ ok: false, code: 'VALIDATION_ERROR', message: "Email and password required" });
   }
@@ -103,7 +107,7 @@ router.post("/login", async (req, res) => {
     console.error(`[AUTH-LOGIN] fail:`, err.message);
     return res.status(401).json({
       ok: false,
-      code: 'AUTH_ERROR',
+      code: 'INVALID_CREDENTIALS',
       message: err.message || "Login failed"
     });
   }
