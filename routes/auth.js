@@ -11,6 +11,38 @@ import { rateLimiter } from "../middleware/rateLimiter.js";
 
 const router = express.Router();
 
+// Diagnostic endpoint - check if environment is configured correctly
+router.get("/diag", (req, res) => {
+  const missing = [];
+  const issues = [];
+
+  if (!process.env.SUPABASE_URL) missing.push("SUPABASE_URL");
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) missing.push("SUPABASE_SERVICE_ROLE_KEY");
+
+  // Test if service role key looks valid (JWT format)
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!key.startsWith('eyJ')) {
+      issues.push("SUPABASE_SERVICE_ROLE_KEY does not look like a valid JWT (should start with 'eyJ')");
+    }
+    // Check if it's the anon key by mistake (anon keys have 'anon' role in payload)
+    try {
+      const payload = JSON.parse(Buffer.from(key.split('.')[1], 'base64').toString());
+      if (payload.role === 'anon') {
+        issues.push("SUPABASE_SERVICE_ROLE_KEY appears to be an ANON key (role=anon), need SERVICE_ROLE key");
+      }
+    } catch (e) {
+      issues.push(`SUPABASE_SERVICE_ROLE_KEY parsing failed: ${e.message}`);
+    }
+  }
+
+  if (missing.length > 0 || issues.length > 0) {
+    return res.json({ ok: false, missing, issues });
+  }
+
+  return res.json({ ok: true, message: "All required environment variables are set" });
+});
+
 /**
  * POST /api/auth/signup
  * Backend-controlled signup using Supabase Admin API
