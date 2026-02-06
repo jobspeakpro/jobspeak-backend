@@ -117,7 +117,7 @@ export async function adminGenerateLink(email) {
 export function verifyInviteCode(code) {
     const validCode = process.env.SIGNUP_INVITE_CODE;
     if (!validCode || !code) return false;
-    return code.trim() === validCode.trim();
+    return code.trim() === validCode;
 }
 
 /**

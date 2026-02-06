@@ -263,18 +263,28 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
 
     // Resolve voice (with onboarding warm female fallback)
     const requestedVoiceName = voiceId || voiceName || "default";
-    const voiceDef = resolveVoice(voiceId, locale, voiceName);
 
-    console.log(`[TTS] requestId=${requestId}, requestedVoiceName=${requestedVoiceName}, resolvedVoice=${voiceDef.openai || voiceDef.eleven || voiceDef.google}`);
+    // STRICT ONBOARDING LOGIC
+    let isOnboarding = (!voiceId || voiceId === "default" || voiceId === "" || voiceId?.includes('onboarding'));
+
+    let voiceDef;
+    if (isOnboarding) {
+      voiceDef = VOICE_DEFS["us_female_emma"]; // Force NOVA
+    } else {
+      voiceDef = resolveVoice(voiceId, locale, voiceName);
+    }
+
+    console.log(`[TTS] requestId=${requestId}, requested=${requestedVoiceName}, resolved=${voiceDef.openai || voiceDef.eleven || voiceDef.google}`);
 
     // Check micro-cache for onboarding prompts (default voice)
-    const isOnboarding = !voiceId || voiceId === "default" || voiceId === "";
+    // Note: isOnboarding is already true if it was "default" or "onboarding_*"
     const cacheKey = getCacheKey("OPENAI", voiceDef.openai, text);
 
     if (isOnboarding && ONBOARDING_CACHE.has(cacheKey)) {
       const cached = ONBOARDING_CACHE.get(cacheKey);
       const totalTime = Date.now() - startTime;
       console.log(`[TTS] Onboarding cache HIT (${totalTime}ms)`);
+      console.log(`[ONBOARDING_TTS] requested=${requestedVoiceName}, resolved=${cached.resolvedVoice}, provider=${cached.provider} (CACHED)`);
 
       return res.json({
         ok: true,
@@ -390,6 +400,7 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
         timestamp: Date.now()
       });
       console.log(`[TTS] Onboarding cached (gen:${generationTime}ms, encode:${encodeTime}ms, total:${totalTime}ms, bytes:${responseBytes})`);
+      console.log(`[ONBOARDING_TTS] requested=${requestedVoiceName}, resolved=${voiceDef.openai || voiceDef.eleven || voiceDef.google}, provider=${usedProvider}`);
     }
 
     console.log(`[TTS] Success (gen:${generationTime}ms, encode:${encodeTime}ms, total:${totalTime}ms, bytes:${responseBytes})`);

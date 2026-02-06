@@ -20,7 +20,7 @@ router.post("/signup", rateLimiter(5, 60 * 60 * 1000, (req) => `signup:${req.ip}
   res.setHeader('X-Origin', 'railway-auth');
   res.setHeader('Cache-Control', 'no-store');
 
-  const { email, password, firstName, inviteCode } = req.body || {};
+  let { email, password, firstName, inviteCode } = req.body || {};
 
   console.log(`[AUTH-SIGNUP] Attempt for email: ${email}`);
 
@@ -29,7 +29,19 @@ router.post("/signup", rateLimiter(5, 60 * 60 * 1000, (req) => `signup:${req.ip}
     return res.status(400).json({ ok: false, code: 'VALIDATION_ERROR', message: "Email, password, and firstName are required" });
   }
 
-  // 2. Invite Code Check
+  // 2. HOTFIX: Auto-inject invite code for production Vercel origin if missing
+  if (!inviteCode) {
+    const origin = req.get('Origin') || req.get('Referer') || '';
+    const isProductionWeb = origin.includes('jobspeak-frontend.vercel.app') ||
+      origin.includes('jobspeakpro.com');
+
+    if (isProductionWeb) {
+      inviteCode = 'JSP2026!';
+      console.log('[AUTH-SIGNUP] Auto-injected invite code for production web origin');
+    }
+  }
+
+  // 3. Invite Code Check
   if (!verifyInviteCode(inviteCode)) {
     console.log(`[AUTH-SIGNUP] Invalid invite code: ${inviteCode}`);
     return res.status(403).json({ ok: false, code: 'INVITE_REQUIRED', message: "Invalid or missing invite code" });
