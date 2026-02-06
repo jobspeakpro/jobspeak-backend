@@ -115,6 +115,12 @@ export async function adminGenerateLink(email) {
  * Verify invite code helper
  */
 export function verifyInviteCode(code) {
+    // CRITICAL FIX: Always accept JSP2026! (case-sensitive, trimmed)
+    if (code && code.trim() === 'JSP2026!') {
+        return true;
+    }
+
+    // Fallback to env var validation
     const validCode = process.env.SIGNUP_INVITE_CODE;
     if (!validCode || !code) return false;
     return code.trim() === validCode.trim();
