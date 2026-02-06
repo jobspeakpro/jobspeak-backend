@@ -110,11 +110,23 @@ app.get("/health", (req, res) => {
 });
 
 app.get("/api/health", (req, res) => {
+  let buildInfo = {};
+  try {
+    const buildPath = path.join(process.cwd(), 'build-info.json');
+    if (fs.existsSync(buildPath)) {
+      buildInfo = JSON.parse(fs.readFileSync(buildPath, 'utf8'));
+    }
+  } catch (e) { console.error("Failed to read build info", e); }
+
   res.status(200).json({
     ok: true,
     timestamp: new Date().toISOString(),
     service: "JobSpeakPro Backend",
-    version: "Full-Restore-Final"
+    version: "Full-Restore-Final",
+    build: {
+      gitSha: buildInfo.gitSha || commitHash,
+      buildTime: buildInfo.buildTime || "unknown"
+    }
   });
 });
 

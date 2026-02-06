@@ -137,15 +137,15 @@ export async function adminGenerateLink({ email, password, redirectTo }) {
  * Verify invite code helper
  */
 export function verifyInviteCode(code) {
-    // CRITICAL FIX: Always accept JSP2026! (case-sensitive, trimmed)
-    if (code && code.trim() === 'JSP2026!') {
-        return true;
-    }
+    if (!code) return false;
+    const cleanCode = code.trim();
 
-    // Fallback to env var validation
-    const validCode = process.env.SIGNUP_INVITE_CODE;
-    if (!validCode || !code) return false;
-    return code.trim() === validCode.trim();
+    // 1. Always accept the master key
+    if (cleanCode === 'JSP2026!') return true;
+
+    // 2. Check env var list (comma separated)
+    const envCodes = (process.env.SIGNUP_INVITE_CODES || process.env.SIGNUP_INVITE_CODE || '').split(',').map(c => c.trim()).filter(Boolean);
+    return envCodes.includes(cleanCode);
 }
 
 /**
@@ -159,5 +159,26 @@ export async function signInUser({ email, password }) {
 
     if (error) throw error;
     return data;
+}
+
+/**
+ * Log invite usage (Fire and forget)
+ */
+export async function logInviteUsage({ email, inviteCode, userId }) {
+    // Only proceed if we have a robust client
+    if (!supabase || !supabase.from) return;
+
+    // Fire and forget - don't await or crash
+    supabase.from('signup_invites').insert({
+        email,
+        invite_code: inviteCode,
+        user_id: userId,
+        created_at: new Date().toISOString()
+    }).then(({ error }) => {
+        if (error) console.warn('[INVITE-LOG] Failed to log usage:', error.message);
+        else console.log('[INVITE-LOG] Logged usage for:', email);
+    }).catch(err => {
+        console.warn('[INVITE-LOG] Exception:', err.message);
+    });
 }
 

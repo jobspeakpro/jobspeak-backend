@@ -5,7 +5,8 @@ import {
   adminCreateUser,
   adminGenerateLink,
   verifyInviteCode,
-  signInUser
+  signInUser,
+  logInviteUsage
 } from "../services/supabase.js";
 import { rateLimiter } from "../middleware/rateLimiter.js";
 
@@ -88,6 +89,9 @@ router.post("/signup", rateLimiter(5, 60 * 60 * 1000, (req) => `signup:${req.ip}
     });
 
     console.log(`[AUTH-SIGNUP] created user: ${user.id}`);
+
+    // 3b. Log invite usage (Async/Non-blocking)
+    logInviteUsage({ email, inviteCode, userId: user.id });
 
     // 4. Generate Link via Admin API - FAIL HARD if this fails
     let actionLink;

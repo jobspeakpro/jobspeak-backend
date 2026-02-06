@@ -250,11 +250,20 @@ router.get("/tts/audio/:id", (req, res) => {
 });
 
 // --- ROUTE ---
-router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"), async (req, res) => {
+// --- REUSABLE HANDLER ---
+async function handleTTS(req, res, overrideContext = null) {
   const startTime = Date.now();
 
   try {
-    const { text, voiceId, locale, voiceName, speed = 1.0 } = req.body;
+    let { text, voiceId, locale, voiceName, speed = 1.0, context, feature } = req.body;
+
+    // OVERRIDE: If this is the dedicated mock interview route, FORCE everything
+    if (overrideContext === 'mock_interview') {
+      context = 'mock_interview';
+      feature = 'mock_interview';
+      voiceId = 'us_female_emma'; // Force Nova
+    }
+
     const requestId = generateRequestId();
 
     if (!text || !text.trim()) {
@@ -264,8 +273,13 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
     // Resolve voice (with onboarding warm female fallback)
     const requestedVoiceName = voiceId || voiceName || "default";
 
-    // STRICT ONBOARDING LOGIC
-    let isOnboarding = (!voiceId || voiceId === "default" || voiceId === "" || voiceId?.includes('onboarding'));
+    // Check Referer for fallback context
+    const referer = req.get('Referer') || '';
+    const isMockInterviewCtx = context === 'mock_interview' || feature === 'mock_interview' || referer.includes('/mock-interview');
+
+    // STRICT ONBOARDING / MOCK INTERVIEW LOGIC
+    // If context is 'mock_interview', treat exactly like onboarding (force nova)
+    let isOnboarding = (!voiceId || voiceId === "default" || voiceId === "" || voiceId?.includes('onboarding') || isMockInterviewCtx);
 
     let voiceDef;
     if (isOnboarding) {
@@ -274,10 +288,17 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
       voiceDef = resolveVoice(voiceId, locale, voiceName);
     }
 
+    // CRITICAL: If mock interview, FORCE provider to OpenAI if available (because Nova is OpenAI)
+    if (isMockInterviewCtx && voiceDef.openai) {
+      // We know Nova is OpenAI. Ensure we don't accidentally fall back to Google unless key missing.
+      if (!openaiKey) {
+        console.warn('[TTS] Mock Interview requested but OpenAI key missing! Falling back.');
+      }
+    }
+
     console.log(`[TTS] requestId=${requestId}, requested=${requestedVoiceName}, resolved=${voiceDef.openai || voiceDef.eleven || voiceDef.google}`);
 
     // Check micro-cache for onboarding prompts (default voice)
-    // Note: isOnboarding is already true if it was "default" or "onboarding_*"
     const cacheKey = getCacheKey("OPENAI", voiceDef.openai, text);
 
     if (isOnboarding && ONBOARDING_CACHE.has(cacheKey)) {
@@ -303,8 +324,8 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
       });
     }
 
-    // Set no-cache headers for non-onboarding
-    if (!isOnboarding) {
+    // Set no-cache headers for non-onboarding OR if it's a mock interview (to avoid stale audio)
+    if (!isOnboarding || isMockInterviewCtx) {
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
@@ -316,44 +337,49 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
     const errors = {};
     const generationStartTime = Date.now();
 
-    // TRY GOOGLE (Priority 1)
-    if (googleAuthReady) {
+    // 1. OPENAI (Priority for Mock Interview / Onboarding if mapped)
+    if (!audioBuffer && openaiKey && (voiceDef.openai && (primaryProvider === 'OPENAI' || isMockInterviewCtx || isOnboarding))) {
       try {
-        console.log(`[TTS] Attempting Google...`);
-        audioBuffer = await generateGoogle(text, voiceDef, speed);
-        usedProvider = "GOOGLE";
-        console.log(`[TTS] Provider selected: GOOGLE`);
+        console.log(`[TTS] Attempting OpenAI...`);
+        audioBuffer = await generateOpenAI(text, voiceDef); // Adjusted signature based on existing code
+        usedProvider = "OPENAI";
       } catch (err) {
-        errors.google = err.message;
-        console.warn(`[TTS] Google failed: ${err.message}`);
+        errors.openai = err.message;
+        console.error(`[TTS] OpenAI failed: ${err.message}`);
       }
-    } else {
-      errors.google = "Google credentials not configured";
     }
 
-    // TRY ELEVENLABS (Priority 2)
-    if (!audioBuffer && elevenLabsKey) {
+    // 2. ELEVENLABS
+    if (!audioBuffer && elevenLabsKey && voiceDef.eleven && primaryProvider === 'ELEVENLABS' && !isMockInterviewCtx) {
       try {
         console.log(`[TTS] Attempting ElevenLabs...`);
         audioBuffer = await generateElevenLabs(text, voiceDef);
         usedProvider = "ELEVENLABS";
-        console.log(`[TTS] Provider selected: ELEVENLABS`);
       } catch (err) {
         errors.elevenlabs = err.message;
-        console.warn(`[TTS] ElevenLabs failed: ${err.message}`);
       }
     }
 
-    // TRY OPENAI (Priority 3 - Emergency Fallback)
-    if (!audioBuffer && openaiKey) {
+
+    // 3. GOOGLE (Fallback)
+    if (!audioBuffer && googleAuthReady && voiceDef.google) {
       try {
-        console.log(`[TTS] Attempting OpenAI...`);
+        console.log(`[TTS] Attempting Google...`);
+        audioBuffer = await generateGoogle(text, voiceDef, speed);
+        usedProvider = "GOOGLE";
+      } catch (err) {
+        errors.google = err.message;
+      }
+    }
+
+    // 4. OpenAI (Fallback if not tried yet)
+    if (!audioBuffer && openaiKey && voiceDef.openai && usedProvider === "NONE") {
+      try {
+        console.log(`[TTS] Attempting OpenAI (fallback)...`);
         audioBuffer = await generateOpenAI(text, voiceDef);
         usedProvider = "OPENAI";
-        console.log(`[TTS] Provider selected: OPENAI, voice=${voiceDef.openai}`);
       } catch (err) {
         errors.openai = err.message;
-        console.error(`[TTS] OpenAI failed: ${err.message}`);
       }
     }
 
@@ -366,13 +392,7 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
         ok: false,
         error: "All TTS providers failed",
         details: errors,
-        requestId,
-        timingMs: {
-          generationMs: generationTime,
-          encodeMs: 0,
-          totalMs: Date.now() - startTime,
-          responseBytes: 0
-        }
+        requestedVoice: requestedVoiceName
       });
     }
 
@@ -435,7 +455,11 @@ router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"
       }
     });
   }
-});
+}
+
+// RATE LIMITED ROUTES
+router.post("/mock-interview", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"), (req, res) => handleTTS(req, res, 'mock_interview'));
+router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"), (req, res) => handleTTS(req, res));
 
 // Health check
 router.get("/health", (req, res) => {
