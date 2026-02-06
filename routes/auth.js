@@ -57,12 +57,28 @@ router.post("/signup", rateLimiter(5, 60 * 60 * 1000, (req) => `signup:${req.ip}
 
     console.log(`[AUTH-SIGNUP] created user: ${user.id}`);
 
-    // 4. Generate Link via Admin API
-    const { action_link: actionLink } = await adminGenerateLink(email);
-    console.log(`[AUTH-SIGNUP] generated actionLink`);
+    // 4. Generate Link via Admin API - FAIL HARD if this fails
+    let actionLink;
+    try {
+      const linkResult = await adminGenerateLink(email);
+      actionLink = linkResult?.action_link;
 
-    // 5. Success Response
-    // Headers already set at start
+      // CRITICAL: Fail hard if actionLink is missing
+      if (!actionLink || typeof actionLink !== 'string') {
+        throw new Error(`adminGenerateLink returned invalid actionLink: ${JSON.stringify(linkResult)}`);
+      }
+
+      console.log(`[AUTH-SIGNUP] generated actionLink: ${actionLink.substring(0, 50)}...`);
+    } catch (linkErr) {
+      console.error(`[AUTH-SIGNUP] actionLink generation failed:`, linkErr.message, linkErr);
+      return res.status(500).json({
+        ok: false,
+        code: 'ACTIONLINK_FAILED',
+        message: 'Signup created but verification link unavailable. Try again shortly.'
+      });
+    }
+
+    // 5. Success Response - actionLink is guaranteed to exist here
     return res.json({
       ok: true,
       email,
