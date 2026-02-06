@@ -17,6 +17,7 @@ const router = express.Router();
  * Returns actionLink in response for QA (no email sent)
  */
 router.post("/signup", rateLimiter(5, 60 * 60 * 1000, (req) => `signup:${req.ip}`), async (req, res) => {
+  res.setHeader('X-Origin', 'railway-auth');
   const { email, password, firstName, inviteCode } = req.body || {};
 
   console.log(`[AUTH-SIGNUP] Attempt for email: ${email}`);
