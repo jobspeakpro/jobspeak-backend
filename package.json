@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node scripts/generate-build-info.js && node server.js",
     "dev": "node scripts/generate-build-info.js && nodemon server.js",
+    "build": "node scripts/generate-build-info.js",
     "validate": "node validate.js"
   },
   "dependencies": {

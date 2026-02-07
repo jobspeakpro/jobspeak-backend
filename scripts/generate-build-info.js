@@ -3,7 +3,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 const args = process.argv.slice(2);
-const targetDir = args[0] || 'src';
+const targetDir = args[0] || '.';
 
 function getGitSha() {
     try {
@@ -21,11 +21,6 @@ const buildInfo = {
 
 const outputPath = path.resolve(process.cwd(), targetDir, 'build-info.json');
 
-// Ensure directory exists
-if (!fs.existsSync(path.dirname(outputPath))) {
-    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-}
-
 fs.writeFileSync(outputPath, JSON.stringify(buildInfo, null, 2));
-console.log(`[BUILD] Generated build-info.json at ${outputPath}`);
+console.log(`[BUILD] Generated backend build-info.json at ${outputPath}`);
 console.log(`[BUILD] SHA: ${buildInfo.gitSha} | Time: ${buildInfo.buildTime}`);
