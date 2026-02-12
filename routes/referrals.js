@@ -1,6 +1,5 @@
 
 import express from 'express';
-import { createClient } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase.js';
 import { getAuthenticatedUser } from '../middleware/auth.js';
 import crypto from 'crypto';
@@ -208,10 +207,6 @@ router.post('/referrals/redeem', async (req, res) => {
 
 
 
-const supabaseAdmin = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
-);
 
 // Helper: check if user is admin
 async function isAdmin(req) {
@@ -220,7 +215,7 @@ async function isAdmin(req) {
 
     const adminEmails = (process.env.ADMIN_EMAIL || '').split(',').map(e => e.trim().toLowerCase());
     try {
-        const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(userId);
+        const { data: { user } } = await supabase.auth.admin.getUserById(userId);
         if (!user) return false;
         return adminEmails.includes(user.email.toLowerCase());
     } catch (e) {
@@ -264,7 +259,7 @@ router.get('/admin/dashboard', async (req, res) => {
         let emailsMap = {};
         for (const uid of allRefUserIds) {
             try {
-                const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(uid);
+                const { data: { user } } = await supabase.auth.admin.getUserById(uid);
                 if (user) emailsMap[uid] = user.email;
             } catch (e) { /* skip */ }
         }
@@ -339,7 +334,7 @@ router.get('/admin/users', async (req, res) => {
         for (const profile of (profiles || [])) {
             let email = null;
             try {
-                const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(profile.id);
+                const { data: { user } } = await supabase.auth.admin.getUserById(profile.id);
                 if (user) email = user.email;
             } catch (e) { /* skip */ }
 
