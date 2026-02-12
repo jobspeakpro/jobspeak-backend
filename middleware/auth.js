@@ -51,7 +51,7 @@ export async function getAuthenticatedUser(req) {
         }
 
         // User is authenticated
-        return { userId: user.id, isGuest: false };
+        return { userId: user.id, email: user.email, isGuest: false };
     } catch (error) {
         console.error('[AUTH] Error verifying token:', error);
         return { userId: null, isGuest: true };
