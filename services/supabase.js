@@ -135,17 +135,39 @@ export async function adminGenerateLink({ email, password, redirectTo }) {
 
 /**
  * Verify invite code helper
+ * Now async: also accepts user referral codes (REF-XXXXXXXX) by checking the DB
+ * Returns { valid: boolean, referrerId: string|null }
  */
-export function verifyInviteCode(code) {
-    if (!code) return false;
+export async function verifyInviteCode(code) {
+    if (!code) return { valid: false, referrerId: null };
     const cleanCode = code.trim();
 
     // 1. Always accept the master key
-    if (cleanCode === 'JSP2026!') return true;
+    if (cleanCode === 'JSP2026!') return { valid: true, referrerId: null };
 
     // 2. Check env var list (comma separated)
     const envCodes = (process.env.SIGNUP_INVITE_CODES || process.env.SIGNUP_INVITE_CODE || '').split(',').map(c => c.trim()).filter(Boolean);
-    return envCodes.includes(cleanCode);
+    if (envCodes.includes(cleanCode)) return { valid: true, referrerId: null };
+
+    // 3. Check if it's a valid referral code (REF-XXXXXXXX) in the DB
+    if (cleanCode.startsWith('REF-') && supabase && supabase.from) {
+        try {
+            const { data: referrer } = await supabase
+                .from('profiles')
+                .select('id')
+                .eq('referral_code', cleanCode)
+                .single();
+
+            if (referrer) {
+                console.log(`[INVITE] Referral code ${cleanCode} belongs to user ${referrer.id}`);
+                return { valid: true, referrerId: referrer.id };
+            }
+        } catch (err) {
+            console.warn('[INVITE] Referral code DB lookup failed:', err.message);
+        }
+    }
+
+    return { valid: false, referrerId: null };
 }
 
 /**

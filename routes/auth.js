@@ -74,8 +74,9 @@ router.post("/signup", rateLimiter(5, 60 * 60 * 1000, (req) => `signup:${req.ip}
     }
   }
 
-  // 3. Invite Code Check
-  if (!verifyInviteCode(inviteCode)) {
+  // 3. Invite Code Check (now async — also accepts REF- referral codes)
+  const inviteResult = await verifyInviteCode(inviteCode);
+  if (!inviteResult.valid) {
     console.log(`[AUTH-SIGNUP] Invalid invite code: ${inviteCode}`);
     return res.status(403).json({ ok: false, code: 'INVITE_REQUIRED', message: "Invalid or missing invite code" });
   }
@@ -92,6 +93,35 @@ router.post("/signup", rateLimiter(5, 60 * 60 * 1000, (req) => `signup:${req.ip}
 
     // 3b. Log invite usage (Async/Non-blocking)
     logInviteUsage({ email, inviteCode, userId: user.id });
+
+    // 3c. If signup was via referral code, create referral_logs entry for affiliate tracking
+    if (inviteResult.referrerId) {
+      console.log(`[AUTH-SIGNUP] Creating referral log: referrer=${inviteResult.referrerId} -> referred=${user.id}`);
+      import('../services/supabase.js').then(({ supabase }) => {
+        supabase.from('referral_logs').insert({
+          referrer_id: inviteResult.referrerId,
+          referrer_user_id: inviteResult.referrerId,
+          referred_user_id: user.id,
+          status: 'pending'
+        }).then(({ error }) => {
+          if (error) {
+            if (error.code === '23505') {
+              console.log('[AUTH-SIGNUP] Referral log already exists (duplicate)');
+            } else {
+              console.error('[AUTH-SIGNUP] Referral log insert error:', error.message);
+            }
+          } else {
+            console.log('[AUTH-SIGNUP] Referral log created successfully');
+          }
+        });
+        // Also mark referred_by on the new user's profile
+        supabase.from('profiles').update({ referred_by: inviteResult.referrerId }).eq('id', user.id)
+          .then(({ error }) => {
+            if (error) console.warn('[AUTH-SIGNUP] referred_by update failed:', error.message);
+            else console.log('[AUTH-SIGNUP] referred_by set on profile');
+          });
+      });
+    }
 
     // 4. Generate Link via Admin API - FAIL HARD if this fails
     let actionLink;
