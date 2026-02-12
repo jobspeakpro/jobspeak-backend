@@ -232,6 +232,37 @@ async function isAdmin(req) {
     }
 }
 
+// TEMP: Diagnostic endpoint to debug admin auth
+router.get('/admin/debug', async (req, res) => {
+    try {
+        const { userId } = await getAuthenticatedUser(req);
+        if (!userId) return res.json({ step: 'getAuthenticatedUser', error: 'No userId from token', hasAuthHeader: !!req.headers.authorization });
+
+        const adminEmails = (process.env.ADMIN_EMAIL || '').split(',').map(e => e.trim().toLowerCase());
+
+        try {
+            const { data, error } = await supabase.auth.admin.getUserById(userId);
+            if (error) return res.json({ step: 'getUserById', userId, error: error.message, adminEmails });
+            const user = data?.user;
+            if (!user) return res.json({ step: 'getUserById', userId, error: 'No user returned', adminEmails });
+
+            const match = adminEmails.includes(user.email.toLowerCase());
+            return res.json({
+                step: 'done',
+                userId,
+                userEmail: user.email,
+                adminEmails,
+                match,
+                isAdmin: match
+            });
+        } catch (e) {
+            return res.json({ step: 'getUserById_exception', userId, error: e.message, adminEmails });
+        }
+    } catch (e) {
+        return res.json({ step: 'outer_exception', error: e.message });
+    }
+});
+
 // GET /api/admin/dashboard — Full admin overview
 router.get('/admin/dashboard', async (req, res) => {
     try {
