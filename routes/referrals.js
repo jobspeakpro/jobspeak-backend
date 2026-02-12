@@ -412,12 +412,23 @@ router.post('/admin/sync-profiles', async (req, res) => {
         const { data: { users }, error: authError } = await supabase.auth.admin.listUsers();
         if (authError) throw authError;
 
-        const results = { total: users.length, created: 0, existing: 0, errors: [] };
+        const results = { total: users.length, created: 0, updated: 0, existing: 0, errors: [] };
 
         for (const user of users) {
-            const { data: profile } = await supabase.from('profiles').select('id').eq('id', user.id).single();
+            const { data: profile } = await supabase.from('profiles').select('id, referral_code').eq('id', user.id).single();
             if (profile) {
-                results.existing++;
+                if (!profile.referral_code) {
+                    const newCode = 'REF-' + Math.random().toString(36).substring(2, 10).toUpperCase();
+                    const { error: updateError } = await supabase
+                        .from('profiles')
+                        .update({ referral_code: newCode })
+                        .eq('id', user.id);
+
+                    if (updateError) results.errors.push({ email: user.email, error: updateError.message });
+                    else results.updated++;
+                } else {
+                    results.existing++;
+                }
             } else {
                 const { error: insertError } = await supabase.from('profiles').insert({
                     id: user.id,
