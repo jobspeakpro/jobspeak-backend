@@ -201,4 +201,139 @@ router.post('/referrals/redeem', async (req, res) => {
     }
 });
 
+// ============================================
+// ADMIN DASHBOARD ENDPOINTS
+// ============================================
+
+// Helper: check if user is admin
+async function isAdmin(req) {
+    const { userId } = await getAuthenticatedUser(req);
+    if (!userId) return false;
+
+    // Look up user email
+    const { data: profile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', userId)
+        .single();
+
+    if (!profile) return false;
+
+    // Check against admin emails (from env var or Supabase auth)
+    const adminEmails = (process.env.ADMIN_EMAIL || '').split(',').map(e => e.trim().toLowerCase());
+
+    // Also check Supabase auth for the user's email
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabaseAdmin = createClient(
+        process.env.SUPABASE_URL,
+        process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
+    );
+    const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(userId);
+
+    if (!user) return false;
+    return adminEmails.includes(user.email.toLowerCase());
+}
+
+router.get('/admin/dashboard', async (req, res) => {
+    try {
+        if (!await isAdmin(req)) {
+            return res.status(403).json({ error: 'Unauthorized — admin only' });
+        }
+
+        // 1. All referral logs with referrer info
+        const { data: referralLogs } = await supabase
+            .from('referral_logs')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+        // 2. All affiliate applications
+        const { data: affiliateApps } = await supabase
+            .from('affiliate_applications')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+        // 3. Get profiles for referrer names/emails
+        const referrerIds = [...new Set((referralLogs || []).map(l => l.referrer_id).filter(Boolean))];
+        const referredIds = [...new Set((referralLogs || []).map(l => l.referred_user_id).filter(Boolean))];
+        const allUserIds = [...new Set([...referrerIds, ...referredIds])];
+
+        let profilesMap = {};
+        if (allUserIds.length > 0) {
+            const { data: profiles } = await supabase
+                .from('profiles')
+                .select('id, display_name, referral_code, credits')
+                .in('id', allUserIds);
+
+            (profiles || []).forEach(p => { profilesMap[p.id] = p; });
+        }
+
+        // 4. Get auth emails for all users
+        let emailsMap = {};
+        try {
+            const { createClient } = await import('@supabase/supabase-js');
+            const supabaseAdmin = createClient(
+                process.env.SUPABASE_URL,
+                process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
+            );
+
+            for (const uid of allUserIds) {
+                try {
+                    const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(uid);
+                    if (user) emailsMap[uid] = user.email;
+                } catch (e) { /* skip */ }
+            }
+        } catch (e) {
+            console.warn('[ADMIN] Could not fetch user emails:', e.message);
+        }
+
+        // 5. Build enriched referral logs
+        const enrichedLogs = (referralLogs || []).map(log => ({
+            ...log,
+            referrer_name: profilesMap[log.referrer_id]?.display_name || null,
+            referrer_email: emailsMap[log.referrer_id] || null,
+            referrer_code: profilesMap[log.referrer_id]?.referral_code || null,
+            referred_name: profilesMap[log.referred_user_id]?.display_name || null,
+            referred_email: emailsMap[log.referred_user_id] || null
+        }));
+
+        // 6. Build payout summary per referrer
+        const payoutSummary = {};
+        (referralLogs || []).forEach(log => {
+            const rid = log.referrer_id;
+            if (!rid) return;
+            if (!payoutSummary[rid]) {
+                payoutSummary[rid] = {
+                    referrer_id: rid,
+                    referrer_name: profilesMap[rid]?.display_name || null,
+                    referrer_email: emailsMap[rid] || null,
+                    referral_code: profilesMap[rid]?.referral_code || null,
+                    credits: profilesMap[rid]?.credits || 0,
+                    total_referrals: 0,
+                    converted: 0,
+                    pending: 0
+                };
+            }
+            payoutSummary[rid].total_referrals++;
+            if (log.status === 'converted') payoutSummary[rid].converted++;
+            else payoutSummary[rid].pending++;
+        });
+
+        return res.json({
+            referralLogs: enrichedLogs,
+            affiliateApplications: affiliateApps || [],
+            payoutSummary: Object.values(payoutSummary),
+            totals: {
+                totalReferrals: (referralLogs || []).length,
+                totalAffiliateApps: (affiliateApps || []).length,
+                totalConverted: (referralLogs || []).filter(l => l.status === 'converted').length,
+                totalPending: (referralLogs || []).filter(l => l.status === 'pending').length
+            }
+        });
+
+    } catch (err) {
+        console.error('[ADMIN] Dashboard error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 export default router;
