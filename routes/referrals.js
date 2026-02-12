@@ -1,5 +1,6 @@
 
 import express from 'express';
+import { createClient } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase.js';
 import { getAuthenticatedUser } from '../middleware/auth.js';
 import crypto from 'crypto';
@@ -205,42 +206,37 @@ router.post('/referrals/redeem', async (req, res) => {
 // ADMIN DASHBOARD ENDPOINTS
 // ============================================
 
+
+
+const supabaseAdmin = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
+);
+
 // Helper: check if user is admin
 async function isAdmin(req) {
     const { userId } = await getAuthenticatedUser(req);
     if (!userId) return false;
 
-    // Look up user email
-    const { data: profile } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('id', userId)
-        .single();
-
-    if (!profile) return false;
-
-    // Check against admin emails (from env var or Supabase auth)
     const adminEmails = (process.env.ADMIN_EMAIL || '').split(',').map(e => e.trim().toLowerCase());
-
-    // Also check Supabase auth for the user's email
-    const { createClient } = await import('@supabase/supabase-js');
-    const supabaseAdmin = createClient(
-        process.env.SUPABASE_URL,
-        process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
-    );
-    const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(userId);
-
-    if (!user) return false;
-    return adminEmails.includes(user.email.toLowerCase());
+    try {
+        const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(userId);
+        if (!user) return false;
+        return adminEmails.includes(user.email.toLowerCase());
+    } catch (e) {
+        console.error('[ADMIN] isAdmin error:', e.message);
+        return false;
+    }
 }
 
+// GET /api/admin/dashboard — Full admin overview
 router.get('/admin/dashboard', async (req, res) => {
     try {
         if (!await isAdmin(req)) {
             return res.status(403).json({ error: 'Unauthorized — admin only' });
         }
 
-        // 1. All referral logs with referrer info
+        // 1. All referral logs
         const { data: referralLogs } = await supabase
             .from('referral_logs')
             .select('*')
@@ -252,41 +248,28 @@ router.get('/admin/dashboard', async (req, res) => {
             .select('*')
             .order('created_at', { ascending: false });
 
-        // 3. Get profiles for referrer names/emails
+        // 3. All profiles
+        const { data: allProfiles } = await supabase
+            .from('profiles')
+            .select('id, display_name, referral_code, credits, subscription_tier, created_at');
+
+        const profilesMap = {};
+        (allProfiles || []).forEach(p => { profilesMap[p.id] = p; });
+
+        // 4. Get emails for users involved in referrals
         const referrerIds = [...new Set((referralLogs || []).map(l => l.referrer_id).filter(Boolean))];
         const referredIds = [...new Set((referralLogs || []).map(l => l.referred_user_id).filter(Boolean))];
-        const allUserIds = [...new Set([...referrerIds, ...referredIds])];
+        const allRefUserIds = [...new Set([...referrerIds, ...referredIds])];
 
-        let profilesMap = {};
-        if (allUserIds.length > 0) {
-            const { data: profiles } = await supabase
-                .from('profiles')
-                .select('id, display_name, referral_code, credits')
-                .in('id', allUserIds);
-
-            (profiles || []).forEach(p => { profilesMap[p.id] = p; });
-        }
-
-        // 4. Get auth emails for all users
         let emailsMap = {};
-        try {
-            const { createClient } = await import('@supabase/supabase-js');
-            const supabaseAdmin = createClient(
-                process.env.SUPABASE_URL,
-                process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
-            );
-
-            for (const uid of allUserIds) {
-                try {
-                    const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(uid);
-                    if (user) emailsMap[uid] = user.email;
-                } catch (e) { /* skip */ }
-            }
-        } catch (e) {
-            console.warn('[ADMIN] Could not fetch user emails:', e.message);
+        for (const uid of allRefUserIds) {
+            try {
+                const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(uid);
+                if (user) emailsMap[uid] = user.email;
+            } catch (e) { /* skip */ }
         }
 
-        // 5. Build enriched referral logs
+        // 5. Enriched referral logs
         const enrichedLogs = (referralLogs || []).map(log => ({
             ...log,
             referrer_name: profilesMap[log.referrer_id]?.display_name || null,
@@ -296,7 +279,7 @@ router.get('/admin/dashboard', async (req, res) => {
             referred_email: emailsMap[log.referred_user_id] || null
         }));
 
-        // 6. Build payout summary per referrer
+        // 6. Payout summary per referrer
         const payoutSummary = {};
         (referralLogs || []).forEach(log => {
             const rid = log.referrer_id;
@@ -322,11 +305,14 @@ router.get('/admin/dashboard', async (req, res) => {
             referralLogs: enrichedLogs,
             affiliateApplications: affiliateApps || [],
             payoutSummary: Object.values(payoutSummary),
+            totalUsers: (allProfiles || []).length,
             totals: {
                 totalReferrals: (referralLogs || []).length,
                 totalAffiliateApps: (affiliateApps || []).length,
                 totalConverted: (referralLogs || []).filter(l => l.status === 'converted').length,
-                totalPending: (referralLogs || []).filter(l => l.status === 'pending').length
+                totalPending: (referralLogs || []).filter(l => l.status === 'pending').length,
+                approvedAffiliates: (affiliateApps || []).filter(a => a.status === 'approved').length,
+                pendingAffiliates: (affiliateApps || []).filter(a => a.status === 'pending').length
             }
         });
 
@@ -336,4 +322,91 @@ router.get('/admin/dashboard', async (req, res) => {
     }
 });
 
+// GET /api/admin/users — All users with emails
+router.get('/admin/users', async (req, res) => {
+    try {
+        if (!await isAdmin(req)) {
+            return res.status(403).json({ error: 'Unauthorized — admin only' });
+        }
+
+        const { data: profiles } = await supabase
+            .from('profiles')
+            .select('id, display_name, referral_code, credits, subscription_tier, created_at')
+            .order('created_at', { ascending: false });
+
+        // Fetch emails from Supabase Auth
+        const enrichedUsers = [];
+        for (const profile of (profiles || [])) {
+            let email = null;
+            try {
+                const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(profile.id);
+                if (user) email = user.email;
+            } catch (e) { /* skip */ }
+
+            enrichedUsers.push({
+                ...profile,
+                email,
+            });
+        }
+
+        return res.json({ users: enrichedUsers, total: enrichedUsers.length });
+    } catch (err) {
+        console.error('[ADMIN] Users error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// POST /api/admin/affiliates/:id/approve — Approve affiliate application
+router.post('/admin/affiliates/:id/approve', async (req, res) => {
+    try {
+        if (!await isAdmin(req)) {
+            return res.status(403).json({ error: 'Unauthorized — admin only' });
+        }
+
+        const { id } = req.params;
+        const { data, error } = await supabase
+            .from('affiliate_applications')
+            .update({ status: 'approved' })
+            .eq('id', id)
+            .select()
+            .single();
+
+        if (error) {
+            return res.status(500).json({ error: 'Failed to approve', details: error.message });
+        }
+
+        return res.json({ success: true, application: data });
+    } catch (err) {
+        console.error('[ADMIN] Approve error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// POST /api/admin/affiliates/:id/reject — Reject affiliate application
+router.post('/admin/affiliates/:id/reject', async (req, res) => {
+    try {
+        if (!await isAdmin(req)) {
+            return res.status(403).json({ error: 'Unauthorized — admin only' });
+        }
+
+        const { id } = req.params;
+        const { data, error } = await supabase
+            .from('affiliate_applications')
+            .update({ status: 'rejected' })
+            .eq('id', id)
+            .select()
+            .single();
+
+        if (error) {
+            return res.status(500).json({ error: 'Failed to reject', details: error.message });
+        }
+
+        return res.json({ success: true, application: data });
+    } catch (err) {
+        console.error('[ADMIN] Reject error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 export default router;
+
