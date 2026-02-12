@@ -283,9 +283,15 @@ router.get('/admin/dashboard', async (req, res) => {
                     credits: profilesMap[rid]?.credits || 0,
                     total_referrals: 0,
                     converted: 0,
-                    pending: 0
+                    pending: 0,
+                    last_active: log.created_at
                 };
             }
+            // Update last_active if new log is more recent
+            if (new Date(log.created_at) > new Date(payoutSummary[rid].last_active)) {
+                payoutSummary[rid].last_active = log.created_at;
+            }
+
             payoutSummary[rid].total_referrals++;
             if (log.status === 'converted') payoutSummary[rid].converted++;
             else payoutSummary[rid].pending++;
