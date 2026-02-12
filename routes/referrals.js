@@ -246,43 +246,8 @@ router.get('/admin/dashboard', async (req, res) => {
         const profilesMap = {};
         (allProfiles || []).forEach(p => { profilesMap[p.id] = p; });
 
-        // TEMP: Sync profiles for existing users (Fix for missing profiles)
-        router.post('/admin/sync-profiles', async (req, res) => {
-            try {
-                if (!await isAdmin(req)) return res.status(403).json({ error: 'Unauthorized' });
-
-                const { data: { users }, error: authError } = await supabase.auth.admin.listUsers();
-                if (authError) throw authError;
-
-                const results = { total: users.length, created: 0, existing: 0, errors: [] };
-
-                for (const user of users) {
-                    const { data: profile } = await supabase.from('profiles').select('id').eq('id', user.id).single();
-                    if (profile) {
-                        results.existing++;
-                    } else {
-                        const { error: insertError } = await supabase.from('profiles').insert({
-                            id: user.id,
-                            display_name: user.user_metadata?.full_name || user.email.split('@')[0],
-                            credits: 3,
-                            subscription_tier: 'free',
-                            referral_code: 'REF-' + Math.random().toString(36).substring(2, 10).toUpperCase(),
-                            created_at: user.created_at,
-                            updated_at: new Date().toISOString()
-                        });
-
-                        if (insertError) results.errors.push({ email: user.email, error: insertError.message });
-                        else results.created++;
-                    }
-                }
-
-                return res.json(results);
-            } catch (e) {
-                return res.status(500).json({ error: e.message });
-            }
-        });
-
-        const supabaseAdmin = createClient((referralLogs || []).map(l => l.referrer_id).filter(Boolean))];
+        // 4. Get emails for users involved in referrals
+        const referrerIds = [...new Set((referralLogs || []).map(l => l.referrer_id).filter(Boolean))];
         const referredIds = [...new Set((referralLogs || []).map(l => l.referred_user_id).filter(Boolean))];
         const allRefUserIds = [...new Set([...referrerIds, ...referredIds])];
 
@@ -430,6 +395,42 @@ router.post('/admin/affiliates/:id/reject', async (req, res) => {
     } catch (err) {
         console.error('[ADMIN] Reject error:', err);
         res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// TEMP: Sync profiles for existing users (Fix for missing profiles)
+router.post('/admin/sync-profiles', async (req, res) => {
+    try {
+        if (!await isAdmin(req)) return res.status(403).json({ error: 'Unauthorized' });
+
+        const { data: { users }, error: authError } = await supabase.auth.admin.listUsers();
+        if (authError) throw authError;
+
+        const results = { total: users.length, created: 0, existing: 0, errors: [] };
+
+        for (const user of users) {
+            const { data: profile } = await supabase.from('profiles').select('id').eq('id', user.id).single();
+            if (profile) {
+                results.existing++;
+            } else {
+                const { error: insertError } = await supabase.from('profiles').insert({
+                    id: user.id,
+                    display_name: user.user_metadata?.full_name || user.email.split('@')[0],
+                    credits: 3,
+                    subscription_tier: 'free',
+                    referral_code: 'REF-' + Math.random().toString(36).substring(2, 10).toUpperCase(),
+                    created_at: user.created_at,
+                    updated_at: new Date().toISOString()
+                });
+
+                if (insertError) results.errors.push({ email: user.email, error: insertError.message });
+                else results.created++;
+            }
+        }
+
+        return res.json(results);
+    } catch (e) {
+        return res.status(500).json({ error: e.message });
     }
 });
 
