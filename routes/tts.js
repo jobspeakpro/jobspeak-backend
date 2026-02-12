@@ -458,7 +458,7 @@ async function handleTTS(req, res, overrideContext = null) {
 }
 
 // RATE LIMITED ROUTES
-router.post("/mock-interview", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"), (req, res) => handleTTS(req, res, 'mock_interview'));
+router.post("/tts/mock-interview", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"), (req, res) => handleTTS(req, res, 'mock_interview'));
 router.post("/tts", rateLimiter(60, 600000, (req) => req.ip || "unknown", "tts:"), (req, res) => handleTTS(req, res));
 
 // Health check
