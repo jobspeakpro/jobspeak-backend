@@ -210,16 +210,24 @@ router.post('/referrals/redeem', async (req, res) => {
 
 // Helper: check if user is admin
 async function isAdmin(req) {
+    console.log('[ADMIN] isAdmin called');
     const { userId } = await getAuthenticatedUser(req);
-    if (!userId) return false;
+    console.log('[ADMIN] userId:', userId);
+    if (!userId) { console.log('[ADMIN] No userId — rejecting'); return false; }
 
     const adminEmails = (process.env.ADMIN_EMAIL || '').split(',').map(e => e.trim().toLowerCase());
+    console.log('[ADMIN] adminEmails:', adminEmails);
     try {
-        const { data: { user } } = await supabase.auth.admin.getUserById(userId);
-        if (!user) return false;
-        return adminEmails.includes(user.email.toLowerCase());
+        const { data, error } = await supabase.auth.admin.getUserById(userId);
+        console.log('[ADMIN] getUserById result:', data?.user?.email, 'error:', error?.message);
+        if (error) { console.error('[ADMIN] getUserById error:', error); return false; }
+        const user = data?.user;
+        if (!user) { console.log('[ADMIN] No user found'); return false; }
+        const match = adminEmails.includes(user.email.toLowerCase());
+        console.log('[ADMIN] Email match:', match, 'user email:', user.email);
+        return match;
     } catch (e) {
-        console.error('[ADMIN] isAdmin error:', e.message);
+        console.error('[ADMIN] isAdmin exception:', e.message, e.stack);
         return false;
     }
 }
