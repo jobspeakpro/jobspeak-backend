@@ -1,6 +1,5 @@
 
 import express from 'express';
-import { createClient } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase.js';
 import { getAuthenticatedUser } from '../middleware/auth.js';
 import crypto from 'crypto';
@@ -137,25 +136,10 @@ router.get('/referrals/history', async (req, res) => {
         const { userId } = await getAuthenticatedUser(req);
         if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-        // RLS-COMPLIANCE: Use user's token if available
-        let supabaseClient = supabase;
-
-        const authHeader = req.headers.authorization;
-        if (authHeader && authHeader.startsWith('Bearer ')) {
-            const token = authHeader.substring(7);
-            const supabaseUrl = process.env.SUPABASE_URL;
-            const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
-
-            if (supabaseUrl && supabaseAnonKey) {
-                supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
-                    global: { headers: { Authorization: `Bearer ${token}` } }
-                });
-            }
-        }
-
-        const { data: logs, error } = await supabaseClient
+        // Use admin client (bypasses RLS) — we already authenticated the user above
+        const { data: logs, error } = await supabase
             .from('referral_logs')
-            .select('id, referred_user_id, status, created_at, profiles:referred_user_id(display_name)')
+            .select('id, referred_user_id, status, created_at')
             .eq('referrer_id', userId)
             .order('created_at', { ascending: false });
 
@@ -164,14 +148,42 @@ router.get('/referrals/history', async (req, res) => {
             return res.status(500).json({ error: 'History fetch failed', details: error.message });
         }
 
-        const history = logs?.map(log => ({
+        const history = (logs || []).map(log => ({
             ...log,
-            referred_email: log.profiles?.display_name || 'User ' + log.referred_user_id.substring(0, 6)
-        })) || [];
+            referred_email: 'User ' + (log.referred_user_id || '').substring(0, 6)
+        }));
 
         return res.json({ history });
     } catch (err) {
         console.error('[REFERRAL] History crash:', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+router.get('/referrals/stats', async (req, res) => {
+    try {
+        const { userId } = await getAuthenticatedUser(req);
+        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+        // Get credits from profile
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('credits')
+            .eq('id', userId)
+            .single();
+
+        // Count total referrals
+        const { count } = await supabase
+            .from('referral_logs')
+            .select('id', { count: 'exact', head: true })
+            .eq('referrer_id', userId);
+
+        return res.json({
+            credits: profile?.credits || 0,
+            total_referred: count || 0
+        });
+    } catch (err) {
+        console.error('[REFERRAL] Stats error:', err);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
