@@ -241,7 +241,7 @@ router.get('/admin/dashboard', async (req, res) => {
         // 3. All profiles
         const { data: allProfiles } = await supabase
             .from('profiles')
-            .select('id, display_name, referral_code, credits, subscription_tier, created_at');
+            .select('id, display_name, referral_code, credits, is_pro, subscription_status, created_at');
 
         const profilesMap = {};
         (allProfiles || []).forEach(p => { profilesMap[p.id] = p; });
@@ -327,7 +327,7 @@ router.get('/admin/users', async (req, res) => {
 
         const { data: profiles } = await supabase
             .from('profiles')
-            .select('id, display_name, referral_code, credits, subscription_tier, created_at')
+            .select('id, display_name, referral_code, credits, is_pro, subscription_status, created_at')
             .order('created_at', { ascending: false });
 
         // Fetch emails from Supabase Auth
@@ -434,7 +434,8 @@ router.post('/admin/sync-profiles', async (req, res) => {
                     id: user.id,
                     display_name: user.user_metadata?.full_name || user.email.split('@')[0],
                     credits: 3,
-                    subscription_tier: 'free',
+                    is_pro: false,
+                    subscription_status: 'free',
                     referral_code: 'REF-' + Math.random().toString(36).substring(2, 10).toUpperCase(),
                     created_at: user.created_at,
                     updated_at: new Date().toISOString()
