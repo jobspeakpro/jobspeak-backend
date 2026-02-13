@@ -20,10 +20,13 @@ router.post('/support/contact', async (req, res) => {
         }
 
         if (process.env.RESEND_API_KEY) {
+            const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
+            const toEmail = process.env.ADMIN_EMAIL || 'jobspeakpro@gmail.com';
+
             // Forward to support
             await resend.emails.send({
-                from: 'JobSpeakPro Contact <contact@jobspeakpro.com>',
-                to: 'jobspeakpro@gmail.com',
+                from: fromEmail,
+                to: toEmail,
                 reply_to: email, // Allow replying directly to user
                 subject: `Support Request: ${subject || 'General Inquiry'}`,
                 html: `
