@@ -10,6 +10,8 @@ if (process.env.RESEND_API_KEY) {
     resend = { emails: { send: async () => console.log("[MOCK EMAIL] Sent") } };
 }
 
+import { sendEmail } from '../services/sendpulse.js';
+
 // POST /api/support/contact
 router.post('/support/contact', async (req, res) => {
     try {
@@ -19,27 +21,35 @@ router.post('/support/contact', async (req, res) => {
             return res.status(400).json({ error: 'Email and message are required' });
         }
 
-        if (process.env.RESEND_API_KEY) {
-            const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
-            const toEmail = process.env.ADMIN_EMAIL || 'jobspeakpro@gmail.com';
+        const htmlContent = `
+            <h3>New Support Request</h3>
+            <p><strong>From:</strong> ${name || 'User'} (${email})</p>
+            <p><strong>Message:</strong></p>
+            <p>${message.replace(/\n/g, '<br>')}</p>
+        `;
 
-            // Forward to support
-            await resend.emails.send({
-                from: fromEmail,
-                to: toEmail,
-                reply_to: email, // Allow replying directly to user
-                subject: `Support Request: ${subject || 'General Inquiry'}`,
-                html: `
-                    <h3>New Support Request</h3>
-                    <p><strong>From:</strong> ${name || 'User'} (${email})</p>
-                    <p><strong>Message:</strong></p>
-                    <p>${message.replace(/\n/g, '<br>')}</p>
-                `
-            });
-            return res.json({ success: true, message: 'Message sent' });
+        const textContent = `
+New Support Request
+From: ${name || 'User'} (${email})
+Message:
+${message}
+        `;
+
+        const result = await sendEmail({
+            to: process.env.ADMIN_EMAIL || 'jobspeakpro@gmail.com',
+            subject: `Support Request: ${subject || 'General Inquiry'}`,
+            html: htmlContent,
+            text: textContent,
+            fromName: 'JobSpeakPro Contact',
+            fromEmail: 'jobspeakpro@gmail.com' // SendPulse requires verified sender
+        });
+
+        if (result.success) {
+            return res.json({ success: true, message: 'Message sent via SendPulse' });
         } else {
-            console.warn('[SUPPORT] Resend API Key missing - mocking success');
-            return res.json({ success: true, message: 'Message logged (mock)' });
+            console.error('[SUPPORT] SendPulse Failed:', result.error);
+            // Fallback? No, just fail for now or mock.
+            return res.status(500).json({ error: 'Failed to send message via SendPulse' });
         }
 
     } catch (err) {
