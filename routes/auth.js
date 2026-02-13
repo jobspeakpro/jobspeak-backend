@@ -49,7 +49,7 @@ router.get("/diag", (req, res) => {
  * Backend-controlled signup using Supabase Admin API
  * Returns actionLink in response for QA (no email sent)
  */
-router.post("/signup", rateLimiter(5, 60 * 60 * 1000, (req) => `signup:${req.ip}`), async (req, res) => {
+router.post("/signup", rateLimiter(100, 60 * 60 * 1000, (req) => `signup:${req.ip}`), async (req, res) => {
   res.setHeader('X-Origin', 'railway-auth');
   res.setHeader('Cache-Control', 'no-store');
 
