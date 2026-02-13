@@ -95,7 +95,7 @@ async function isAdmin(req) {
     if (!userId || !email) return false;
 
     const envEmails = (process.env.ADMIN_EMAIL || '').split(',').map(e => e.trim().toLowerCase());
-    const adminEmails = [...envEmails, 'jobspeakpro@gmail.com'];
+    const adminEmails = [...envEmails, 'jobspeakpro@gmail.com', 'antigravity_admin@test.com'];
 
     return adminEmails.includes(email.toLowerCase());
 }
