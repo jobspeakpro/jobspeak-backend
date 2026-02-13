@@ -12,6 +12,7 @@ if (process.env.RESEND_API_KEY) {
 
 import { sendEmail } from '../services/sendpulse.js';
 import { supabase } from '../services/supabase.js';
+import { getAuthenticatedUser } from '../middleware/auth.js';
 
 // POST /api/support/contact
 router.post('/support/contact', async (req, res) => {
@@ -88,26 +89,39 @@ ${message}
 });
 
 // GET /__admin/support-messages
-router.get('/__admin/support-messages', async (req, res) => {
-    const adminToken = process.env.ADMIN_TOKEN;
-    const verifyKey = "temp-verify-123";
+// Helper: check if user is admin (Duplicated from referrals.js to avoid refactoring)
+async function isAdmin(req) {
+    const { userId, email } = await getAuthenticatedUser(req);
+    if (!userId || !email) return false;
 
-    if (req.headers['x-admin-token'] !== adminToken && req.headers['x-verify-key'] !== verifyKey) {
-        return res.status(403).json({ error: 'Unauthorized' });
+    const envEmails = (process.env.ADMIN_EMAIL || '').split(',').map(e => e.trim().toLowerCase());
+    const adminEmails = [...envEmails, 'jobspeakpro@gmail.com'];
+
+    return adminEmails.includes(email.toLowerCase());
+}
+
+router.get('/admin/support-messages', async (req, res) => {
+    try {
+        if (!await isAdmin(req)) {
+            return res.status(403).json({ error: 'Unauthorized — admin only' });
+        }
+
+        const { data, error } = await supabase
+            .from('support_messages')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(50);
+
+        if (error) {
+            console.error('Support messages fetch error:', error);
+            return res.status(500).json({ error: 'Failed to fetch messages' });
+        }
+
+        res.json({ success: true, messages: data });
+    } catch (err) {
+        console.error('Support messages error:', err);
+        res.status(500).json({ error: 'Internal server error' });
     }
-
-    const { data, error } = await supabase
-        .from('support_messages')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(50); // Pagination later
-
-    if (error) {
-        console.error('[SUPPORT] Fetch Failed:', error);
-        return res.status(500).json({ error: 'Failed to fetch messages' });
-    }
-
-    res.json({ success: true, messages: data });
 });
 
 export default router;
