@@ -278,8 +278,9 @@ async function handleTTS(req, res, overrideContext = null) {
     const isMockInterviewCtx = context === 'mock_interview' || feature === 'mock_interview' || referer.includes('/mock-interview');
 
     // STRICT ONBOARDING / MOCK INTERVIEW LOGIC
-    // If context is 'mock_interview', treat exactly like onboarding (force nova)
-    let isOnboarding = (!voiceId || voiceId === "default" || voiceId === "" || voiceId?.includes('onboarding') || isMockInterviewCtx);
+    // If voice explicitly requests onboarding, OR if it's mock interview context AND no voice is specified
+    let isOnboarding = (voiceId?.includes('onboarding')) ||
+      (isMockInterviewCtx && (!voiceId || voiceId === "default" || voiceId === ""));
 
     let voiceDef;
     if (isOnboarding) {

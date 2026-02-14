@@ -75,10 +75,14 @@ router.post("/signup", rateLimiter(100, 60 * 60 * 1000, (req) => `signup:${req.i
   }
 
   // 3. Invite Code Check (now async — also accepts REF- referral codes)
-  const inviteResult = await verifyInviteCode(inviteCode);
-  if (!inviteResult.valid) {
-    console.log(`[AUTH-SIGNUP] Invalid invite code: ${inviteCode}`);
-    return res.status(403).json({ ok: false, code: 'INVITE_REQUIRED', message: "Invalid or missing invite code" });
+  // 3. Invite Code Check (now async — also accepts REF- referral codes)
+  let inviteResult = { valid: false };
+  if (inviteCode) {
+    inviteResult = await verifyInviteCode(inviteCode);
+    if (!inviteResult.valid) {
+      console.log(`[AUTH-SIGNUP] Invalid invite code provided (ignoring): ${inviteCode}`);
+      // warning: we proceed anyway, but user won't get specific invite benefits if any existed
+    }
   }
 
   try {
