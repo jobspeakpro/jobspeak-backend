@@ -45,7 +45,7 @@ async function getAccessToken() {
     }
 }
 
-export async function sendEmail({ to, subject, html, text, fromName = 'JobSpeakPro Contact', fromEmail = 'jobspeakpro@gmail.com' }) {
+export async function sendEmail({ to, subject, html, text, fromName = 'JobSpeakPro Contact', fromEmail = 'jobspeakpro@gmail.com', cc = null }) {
     try {
         const token = await getAccessToken();
 
@@ -77,6 +77,12 @@ export async function sendEmail({ to, subject, html, text, fromName = 'JobSpeakP
                 ]
             }
         };
+
+        if (cc) {
+            // SendPulse expects 'cc' as an array of objects inside the email object, similar to 'to'
+            const ccArray = Array.isArray(cc) ? cc : [cc];
+            emailData.email.cc = ccArray.map(email => ({ email }));
+        }
 
         console.log(`[SendPulse] Sending email to ${to}...`);
 
