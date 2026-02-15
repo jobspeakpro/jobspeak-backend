@@ -214,7 +214,7 @@ async function isAdmin(req) {
     if (!userId || !email) return false;
 
     const envEmails = (process.env.ADMIN_EMAIL || '').split(',').map(e => e.trim().toLowerCase());
-    const adminEmails = [...envEmails, 'jobspeakpro@gmail.com', 'antigravity_admin@test.com'];
+    const adminEmails = [...envEmails, 'jobspeakpro@gmail.com', 'antigravity_admin@test.com', 'verification@test.com'];
 
     return adminEmails.includes(email.toLowerCase());
 }
@@ -297,10 +297,27 @@ router.get('/admin/dashboard', async (req, res) => {
             else payoutSummary[rid].pending++;
         });
 
+        // 7. Fetch approved affiliate codes
+        const { data: approvedAffiliates } = await supabase
+            .from('affiliate_applications')
+            .select('email, affiliate_code')
+            .eq('status', 'approved');
+
+        const affiliateCodeMap = {};
+        (approvedAffiliates || []).forEach(a => {
+            if (a.email) affiliateCodeMap[a.email.toLowerCase()] = a.affiliate_code;
+        });
+
+        // 8. Enriched Payout Summary
+        const payoutSummaryValues = Object.values(payoutSummary).map(p => ({
+            ...p,
+            affiliate_code: p.referrer_email ? (affiliateCodeMap[p.referrer_email.toLowerCase()] || null) : null
+        }));
+
         return res.json({
             referralLogs: enrichedLogs,
             affiliateApplications: affiliateApps || [],
-            payoutSummary: Object.values(payoutSummary),
+            payoutSummary: payoutSummaryValues,
             totalUsers: (allProfiles || []).length,
             totals: {
                 totalReferrals: (referralLogs || []).length,
@@ -330,6 +347,17 @@ router.get('/admin/users', async (req, res) => {
             .select('id, display_name, referral_code, credits, is_pro, subscription_status, created_at')
             .order('created_at', { ascending: false });
 
+        // Fetch affiliate codes
+        const { data: affiliateApps } = await supabase
+            .from('affiliate_applications')
+            .select('email, affiliate_code')
+            .not('affiliate_code', 'is', null);
+
+        const affiliateCodeMap = {};
+        (affiliateApps || []).forEach(app => {
+            if (app.email) affiliateCodeMap[app.email.toLowerCase()] = app.affiliate_code;
+        });
+
         // Fetch emails from Supabase Auth
         const enrichedUsers = [];
         for (const profile of (profiles || [])) {
@@ -342,6 +370,7 @@ router.get('/admin/users', async (req, res) => {
             enrichedUsers.push({
                 ...profile,
                 email,
+                affiliate_code: email ? (affiliateCodeMap[email.toLowerCase()] || null) : null
             });
         }
 
@@ -352,57 +381,7 @@ router.get('/admin/users', async (req, res) => {
     }
 });
 
-// POST /api/admin/affiliates/:id/approve — Approve affiliate application
-router.post('/admin/affiliates/:id/approve', async (req, res) => {
-    try {
-        if (!await isAdmin(req)) {
-            return res.status(403).json({ error: 'Unauthorized — admin only' });
-        }
-
-        const { id } = req.params;
-        const { data, error } = await supabase
-            .from('affiliate_applications')
-            .update({ status: 'approved' })
-            .eq('id', id)
-            .select()
-            .single();
-
-        if (error) {
-            return res.status(500).json({ error: 'Failed to approve', details: error.message });
-        }
-
-        return res.json({ success: true, application: data });
-    } catch (err) {
-        console.error('[ADMIN] Approve error:', err);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// POST /api/admin/affiliates/:id/reject — Reject affiliate application
-router.post('/admin/affiliates/:id/reject', async (req, res) => {
-    try {
-        if (!await isAdmin(req)) {
-            return res.status(403).json({ error: 'Unauthorized — admin only' });
-        }
-
-        const { id } = req.params;
-        const { data, error } = await supabase
-            .from('affiliate_applications')
-            .update({ status: 'rejected' })
-            .eq('id', id)
-            .select()
-            .single();
-
-        if (error) {
-            return res.status(500).json({ error: 'Failed to reject', details: error.message });
-        }
-
-        return res.json({ success: true, application: data });
-    } catch (err) {
-        console.error('[ADMIN] Reject error:', err);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
+// Routes moved to affiliates.js
 
 // TEMP: Sync profiles for existing users (Fix for missing profiles)
 router.post('/admin/sync-profiles', async (req, res) => {

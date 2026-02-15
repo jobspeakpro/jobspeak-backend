@@ -136,6 +136,31 @@ async function applySupportMessagesMigration() {
     }
 }
 
+
+/**
+ * Add affiliate_code to affiliate_applications
+ */
+async function applyAffiliateColumnsMigration() {
+    console.log('[MIGRATION] 🚀 Starting affiliate_code migration...');
+    const client = new Client({ connectionString: process.env.DATABASE_URL || process.env.SUPABASE_DB_URL });
+    try {
+        await client.connect();
+        await client.query(`
+            ALTER TABLE public.affiliate_applications
+            ADD COLUMN IF NOT EXISTS affiliate_code text;
+            
+            -- Optional: Add unique constraint if not exists (complex in raw sql without error, skipping for safety in MVP)
+            -- But we can try:
+            -- ALTER TABLE public.affiliate_applications ADD CONSTRAINT affiliate_code_unique UNIQUE (affiliate_code);
+        `);
+        await client.end();
+        console.log('[MIGRATION] ✅ Applied affiliate_code column');
+    } catch (e) {
+        console.error('[MIGRATION] Affiliate migration error:', e.message);
+        try { await client.end(); } catch { }
+    }
+}
+
 export async function runStartupMigrations() {
     // 1. Run Entitlements Migration (existing logic)
     const shouldRunEntitlements = process.env.RUN_ENTITLEMENTS_MIGRATION === 'true';
@@ -158,7 +183,11 @@ export async function runStartupMigrations() {
         } catch (e) { console.error("Entitlements Error", e); try { await client.end(); } catch { } }
     }
 
+
     // 2. ALWAYS run Support Messages Migration (idempotent IF NOT EXISTS)
     await applySupportMessagesMigration();
+
+    // 3. Run Affiliate Columns Migration
+    await applyAffiliateColumnsMigration();
 }
 
