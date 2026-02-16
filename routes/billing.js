@@ -601,6 +601,34 @@ router.post("/billing/webhook", async (req, res) => {
           isPro: isActive,
           currentPeriodEnd
         });
+
+        // REFERRAL ATTRIBUTION: Check if this user was referred and mark as converted
+        try {
+          const { processReferralAction } = await import('./referrals.js');
+          // Pass amount_total (cents) and currency
+          const amountTotal = session.amount_total;
+          const currency = session.currency;
+          await processReferralAction(userKey.trim(), amountTotal, currency);
+        } catch (refErr) {
+          console.error('[WEBHOOK REFERRAL ERROR] Failed to process referral:', refErr.message);
+        }
+      }
+
+      // -------------------------
+      // HANDLE REFUNDS (Dynamic Commission Revocation)
+      // -------------------------
+      else if (event.type === 'charge.refunded') {
+        const charge = event.data.object;
+        console.log(`[WEBHOOK] Charge refunded: ${charge.id}, Amount: ${charge.amount_refunded}`);
+
+        try {
+          const { revokeReferralCommission } = await import('./referrals.js');
+          if (charge.customer) {
+            await revokeReferralCommission(charge.customer);
+          }
+        } catch (err) {
+          console.error('[WEBHOOK REFUND ERROR]', err);
+        }
       }
       // Handle customer.subscription.updated - handles expiration, renewal, status changes
       else if (event.type === "customer.subscription.updated") {

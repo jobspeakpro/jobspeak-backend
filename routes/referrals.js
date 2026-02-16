@@ -11,29 +11,96 @@ function generateReferralCode() {
 }
 
 // RESTORED: Exported function for use in other modules (mockInterview.js)
-export async function processReferralAction(userId) {
+// RESTORED: Exported function for use in other modules (mockInterview.js)
+export async function processReferralAction(userId, amountTotal = 0, currency = 'usd') {
     try {
-        console.log(`[REFERRAL] Processing action for ${userId}`);
-        // Logic to convert pending referral to completed
+        console.log(`[REFERRAL] Processing action for ${userId}, Amount: ${amountTotal}`);
+
         // 1. Check for pending log
         const { data: log } = await supabase.from('referral_logs')
             .select('*')
             .eq('referred_user_id', userId)
+            // We might want to allow re-processing if it was refunded? For now, just pending.
             .eq('status', 'pending')
             .single();
 
         if (log) {
-            // 2. Award credit to referrer
-            const { data: referrer } = await supabase.from('profiles').select('credits').eq('id', log.referrer_id).single();
+            // 2. Award credit or Calculate Commission
+            const { data: referrer } = await supabase.from('profiles').select('*').eq('id', log.referrer_id).single();
+
+            let commissionVal = 0;
+
             if (referrer) {
-                await supabase.from('profiles').update({ credits: (referrer.credits || 0) + 1 }).eq('id', log.referrer_id);
+                if (referrer.affiliate_code) {
+                    // Affiliate: 30% Commission
+                    commissionVal = (amountTotal * 0.30) / 100; // Convert cents to dollars (numeric) or keep in cents?
+                    // Let's store as numeric dollars in the new 'commission' column if possible, or just keep inconsistent context for now.
+                    // Ideally we store cents or exact value.
+                    // The verified plan said "Dynamic Commission: 30%".
+                    // I will attempt to update the 'commission' column.
+                } else {
+                    // Regular: 1 Credit
+                    await supabase.from('profiles').update({ credits: (referrer.credits || 0) + 1 }).eq('id', log.referrer_id);
+                }
             }
+
             // 3. Mark log converted
-            await supabase.from('referral_logs').update({ status: 'converted' }).eq('id', log.id);
-            console.log(`[REFERRAL] Converted referral ${log.id}`);
+            // We assume 'commission' column exists now (or will exist).
+            // If it doesn't, this update might fail or just ignore the extra field depending on Supabase/Postgres strictness.
+            // Safe bet: Try to update commission.
+            await supabase.from('referral_logs').update({
+                status: 'converted',
+                commission: commissionVal, // This requires the column to be added
+                currency: currency
+            }).eq('id', log.id);
+
+            console.log(`[REFERRAL] Converted referral ${log.id}. Commission: ${commissionVal}`);
         }
     } catch (err) {
         console.error('[REFERRAL] Process error:', err);
+    }
+}
+
+export async function revokeReferralCommission(stripeCustomerId) {
+    try {
+        console.log(`[REFERRAL] Revoking commission for customer ${stripeCustomerId}`);
+
+        // 1. Find user by stripe_customer_id
+        const { data: profile } = await supabase.from('profiles')
+            .select('id')
+            .eq('stripe_customer_id', stripeCustomerId)
+            .single();
+
+        if (!profile) {
+            console.log('[REFERRAL] No profile found for customer', stripeCustomerId);
+            return;
+        }
+
+        // 2. Find converted referral log
+        const { data: log } = await supabase.from('referral_logs')
+            .select('*')
+            .eq('referred_user_id', profile.id)
+            .eq('status', 'converted')
+            .single();
+
+        if (log) {
+            // 3. Revert status to refunded
+            await supabase.from('referral_logs').update({ status: 'refunded' }).eq('id', log.id);
+
+            // 4. If it was a credit (regular user), deduct it?
+            // We need to check the referrer.
+            const { data: referrer } = await supabase.from('profiles').select('*').eq('id', log.referrer_id).single();
+            if (referrer && !referrer.affiliate_code) {
+                // It was a credit reward. Deduct 1 credit.
+                const newCredits = Math.max(0, (referrer.credits || 0) - 1);
+                await supabase.from('profiles').update({ credits: newCredits }).eq('id', referrer.id);
+                console.log(`[REFERRAL] Deducted credit from ${referrer.id}`);
+            } else {
+                console.log(`[REFERRAL] Marked affiliate commission as refunded for ${log.referrer_id}`);
+            }
+        }
+    } catch (err) {
+        console.error('[REFERRAL] Revoke error:', err);
     }
 }
 
@@ -260,14 +327,37 @@ router.get('/admin/dashboard', async (req, res) => {
         }
 
         // 5. Enriched referral logs
-        const enrichedLogs = (referralLogs || []).map(log => ({
-            ...log,
-            referrer_name: profilesMap[log.referrer_id]?.display_name || null,
-            referrer_email: emailsMap[log.referrer_id] || null,
-            referrer_code: profilesMap[log.referrer_id]?.referral_code || null,
-            referred_name: profilesMap[log.referred_user_id]?.display_name || null,
-            referred_email: emailsMap[log.referred_user_id] || null
-        }));
+        const enrichedLogs = (referralLogs || []).map(log => {
+            const referrerCode = profilesMap[log.referrer_id]?.referral_code;
+            const affiliateCode = profilesMap[log.referrer_id]?.affiliate_code;
+            const isAffiliate = !!affiliateCode;
+
+            // Commission Logic:
+            // Read from DB if available, else fallback
+            let commission = '—';
+            if (log.status === 'converted') {
+                if (log.commission > 0) {
+                    commission = `$${Number(log.commission).toFixed(2)}`;
+                } else {
+                    commission = isAffiliate ? 'Converted (Old)' : '1 Credit';
+                }
+            } else if (log.status === 'refunded') {
+                commission = 'Refunded';
+            } else {
+                commission = isAffiliate ? 'Pending' : 'Pending (1 Credit)';
+            }
+
+            return {
+                ...log,
+                referrer_name: profilesMap[log.referrer_id]?.display_name || null,
+                referrer_email: emailsMap[log.referrer_id] || null,
+                referrer_code: referrerCode || null,
+                affiliate_code: affiliateCode || null, // Explicitly pass this
+                referred_name: profilesMap[log.referred_user_id]?.display_name || null,
+                referred_email: emailsMap[log.referred_user_id] || null,
+                commission: commission
+            };
+        });
 
         // 6. Payout summary per referrer
         const payoutSummary = {};

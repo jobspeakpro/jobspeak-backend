@@ -189,5 +189,30 @@ export async function runStartupMigrations() {
 
     // 3. Run Affiliate Columns Migration
     await applyAffiliateColumnsMigration();
+
+    // 4. Run Profile Affiliate Column Migration (New)
+    await applyProfileAffiliateColumn();
+}
+
+/**
+ * Add affiliate_code to profiles table
+ */
+async function applyProfileAffiliateColumn() {
+    console.log('[MIGRATION] 🚀 Starting profiles affiliate_code migration...');
+    const client = new Client({ connectionString: process.env.DATABASE_URL || process.env.SUPABASE_DB_URL });
+    try {
+        await client.connect();
+        await client.query(`
+            ALTER TABLE public.profiles
+            ADD COLUMN IF NOT EXISTS affiliate_code text;
+            
+            CREATE INDEX IF NOT EXISTS idx_profiles_affiliate_code ON public.profiles (affiliate_code);
+        `);
+        await client.end();
+        console.log('[MIGRATION] ✅ Applied profiles affiliate_code column');
+    } catch (e) {
+        console.error('[MIGRATION] Profile affiliate migration error:', e);
+        try { await client.end(); } catch { }
+    }
 }
 

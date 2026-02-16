@@ -149,21 +149,22 @@ export async function verifyInviteCode(code) {
     const envCodes = (process.env.SIGNUP_INVITE_CODES || process.env.SIGNUP_INVITE_CODE || '').split(',').map(c => c.trim()).filter(Boolean);
     if (envCodes.includes(cleanCode)) return { valid: true, referrerId: null };
 
-    // 3. Check if it's a valid referral code (REF-XXXXXXXX) in the DB
-    if (cleanCode.startsWith('REF-') && supabase && supabase.from) {
+    // 3. Check if it's a valid referral code (REF-XXXXXXXX) or Affiliate Code (AFF-...) in the DB
+    if ((cleanCode.startsWith('REF-') || cleanCode.startsWith('AFF-')) && supabase && supabase.from) {
         try {
+            // Check profiles for referral_code OR affiliate_code
             const { data: referrer } = await supabase
                 .from('profiles')
                 .select('id')
-                .eq('referral_code', cleanCode)
-                .single();
+                .or(`referral_code.eq.${cleanCode},affiliate_code.eq.${cleanCode}`)
+                .maybeSingle();
 
             if (referrer) {
-                console.log(`[INVITE] Referral code ${cleanCode} belongs to user ${referrer.id}`);
+                console.log(`[INVITE] Code ${cleanCode} belongs to user ${referrer.id}`);
                 return { valid: true, referrerId: referrer.id };
             }
         } catch (err) {
-            console.warn('[INVITE] Referral code DB lookup failed:', err.message);
+            console.warn('[INVITE] Code DB lookup failed:', err.message);
         }
     }
 
