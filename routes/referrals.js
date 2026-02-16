@@ -383,7 +383,12 @@ router.get('/admin/dashboard', async (req, res) => {
             }
 
             payoutSummary[rid].total_referrals++;
-            if (log.status === 'converted') payoutSummary[rid].converted++;
+            if (log.status === 'converted') {
+                payoutSummary[rid].converted++;
+                // Sum commission (ensure numeric)
+                const comm = parseFloat(log.commission) || 0;
+                payoutSummary[rid].total_commission = (payoutSummary[rid].total_commission || 0) + comm;
+            }
             else payoutSummary[rid].pending++;
         });
 
