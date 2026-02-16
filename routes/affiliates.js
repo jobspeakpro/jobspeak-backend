@@ -1,4 +1,5 @@
 import express from 'express';
+import { Resend } from 'resend';
 import { supabase } from '../services/supabase.js';
 import { getAuthenticatedUser } from '../middleware/auth.js';
 import { sendEmail } from '../services/sendpulse.js';
@@ -322,65 +323,71 @@ router.post('/admin/affiliates/:id/:action', async (req, res) => {
 
         if (updateError) throw updateError;
 
-        // 3. Send Email Notification via SendPulse
 
-        let subject, htmlBody;
+        // 3. Send Email Notification via Resend
+        if (process.env.RESEND_API_KEY) {
+            const resend = new Resend(process.env.RESEND_API_KEY);
+            let subject, htmlBody;
 
-        if (action === 'approve') {
-            subject = '🎉 You are approved as a JobSpeakPro Affiliate!';
-            htmlBody = ` 
-                <h1>Welcome to the Partner Program!</h1>
-                <p>Hi ${app.name},</p>
-                <p>Great news! Your application to become a JobSpeakPro affiliate has been <strong>APPROVED</strong>.</p>
-                <p><strong>Your Unique Affiliate Code:</strong> <code style="font-size: 1.2em; background: #eee; padding: 5px;">${affiliateCode}</code></p>
-                <p>You can now start sharing this code. When users sign up with this code, you will earn commission.</p>
-                <p>Login to your portal to see your stats.</p>
-                <br/>
-                <p>Cheers,<br/>The JobSpeakPro Team</p>
-            `;
+            if (action === 'approve') {
+                subject = '🎉 You are approved as a JobSpeakPro Affiliate!';
+                htmlBody = ` 
+                    <h1>Welcome to the Partner Program!</h1>
+                    <p>Hi ${app.name},</p>
+                    <p>Great news! Your application to become a JobSpeakPro affiliate has been <strong>APPROVED</strong>.</p>
+                    <p><strong>Your Unique Affiliate Code:</strong> <code style="font-size: 1.2em; background: #eee; padding: 5px;">${affiliateCode}</code></p>
+                    <p>You can now start sharing this code. When users sign up with this code, you will earn commission.</p>
+                    <p>Login to your portal to see your stats.</p>
+                    <br/>
+                    <p>Cheers,<br/>The JobSpeakPro Team</p>
+                `;
+            } else {
+                subject = 'Update on your JobSpeakPro Affiliate Application';
+                htmlBody = `
+                    <p>Hi ${app.name},</p>
+                    <p>Thank you for your interest in the JobSpeakPro affiliate program.</p>
+                    <p>After reviewing your application, we are unable to approve it at this time.</p>
+                    <br/>
+                    <p>Best regards,<br/>The JobSpeakPro Team</p>
+                `;
+            }
+
+            try {
+                console.log(`[AFFILIATE] Sending email via Resend...
+                    To: ${app.email}
+                    Subject: ${subject}
+                    CC: jobspeakpro@gmail.com
+                `);
+
+                const data = await resend.emails.send({
+                    from: 'JobSpeakPro Affiliates <affiliates@jobspeakpro.site>',
+                    to: [app.email],
+                    cc: ['jobspeakpro@gmail.com'],
+                    reply_to: 'jobspeakpro@gmail.com',
+                    subject: subject,
+                    html: htmlBody
+                });
+
+                console.log(`[Resend] Sent ${action} email to ${app.email}. ID: ${data.data?.id}`);
+
+                // Log email success to DB
+                const timestamp = new Date().toISOString();
+                const logEntry = ` | email:${action}:sent@${timestamp}`;
+                const currentDetails = app.payout_details || '';
+
+                await supabase
+                    .from('affiliate_applications')
+                    .update({ payout_details: currentDetails + logEntry })
+                    .eq('id', id);
+
+            } catch (emailErr) {
+                console.error('[Resend] Failed to send status email:', emailErr);
+            }
         } else {
-            subject = 'Update on your JobSpeakPro Affiliate Application';
-            htmlBody = `
-                <p>Hi ${app.name},</p>
-                <p>Thank you for your interest in the JobSpeakPro affiliate program.</p>
-                <p>After reviewing your application, we are unable to approve it at this time.</p>
-                <br/>
-                <p>Best regards,<br/>The JobSpeakPro Team</p>
-            `;
+            console.warn('[AFFILIATE] RESEND_API_KEY missing. Skipping email.');
         }
 
-        try {
-            console.log(`[AFFILIATE] Sending email...
-                To: ${app.email}
-                Subject: ${subject}
-                CC: jobspeakpro@gmail.com
-            `);
-
-            await sendEmail({
-                to: app.email,
-                subject: subject,
-                html: htmlBody,
-                text: htmlBody.replace(/<[^>]*>/g, ''), // Simple text fallback
-                cc: 'jobspeakpro@gmail.com',
-                fromName: 'JobSpeakPro Affiliate Team'
-            });
-            console.log(`[SendPulse] Sent ${action} email to ${app.email} + CC to Admin`);
-
-            // Log email success to DB
-            const timestamp = new Date().toISOString();
-            const logEntry = ` | email:${action}:sent@${timestamp}`;
-            const currentDetails = app.payout_details || '';
-
-            await supabase
-                .from('affiliate_applications')
-                .update({ payout_details: currentDetails + logEntry })
-                .eq('id', id);
-
-        } catch (emailErr) {
-            console.error('[SendPulse] Failed to send status email:', emailErr);
-        }
-
-        return res.json({ success: true, affiliateCode });
+        return res.json({ success: true, affiliateCode, message: isResend ? 'Email resent' : undefined });
 
     } catch (err) {
         console.error(`Error in ${action}:`, err);
