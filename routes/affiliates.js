@@ -275,28 +275,44 @@ router.post('/admin/affiliates/:id/:action', async (req, res) => {
             return res.status(404).json({ error: 'Application not found' });
         }
 
-        if (app.status === action + 'd') {
-            return res.json({ success: true, message: `Already ${action}d` });
-        }
+        // Check if already in that state - BUT allow re-sending email if requested (idempotent)
+        const isResend = app.status === action + 'd' || (app.status === 'approved' && action === 'approve');
 
         // 2. Perform Action
         let updateData = { status: action === 'approve' ? 'approved' : 'rejected' };
-        let affiliateCode = null;
+        let affiliateCode = app.affiliate_code; // Default to existing
 
         if (action === 'approve') {
             // Generate unique affiliate code IF not already present
-            // Format: REF-{USER_ID_PREFIX}-{RANDOM} or just simple unique string
-            // User requested "unique affiliate account code". 
-            // We'll use a simple strategy: First 4 of name + random 4 chars
-            const cleanName = (app.name || 'user').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().substring(0, 4);
-            const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-            affiliateCode = `AFF-${cleanName}-${random}`;
+            if (!affiliateCode) {
+                const cleanName = (app.name || 'user').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().substring(0, 4);
+                const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+                affiliateCode = `AFF-${cleanName}-${random}`;
+                // Only update code if it was missing
+                updateData.affiliate_code = affiliateCode;
+                console.log(`[AFFILIATE] Generated new code: ${affiliateCode}`);
+            } else {
+                console.log(`[AFFILIATE] Using existing code: ${affiliateCode}`);
+            }
 
-            // Should verify uniqueness in DB, but for now assuming entropy is enough for MVP
-            updateData.affiliate_code = affiliateCode;
+            // SYNC TO PROFILE: Ensure verifyInviteCode can find this user by code
+            // Always try to sync just in case it failed before
+            const { data: userProfile } = await supabase
+                .from('profiles')
+                .select('id')
+                .eq('email', app.email)
+                .maybeSingle();
 
-            // Also update the user's profile if user_id exists? 
-            // The requirements said "be sure that code is reflected in supabase" (it will be in affiliate_applications table)
+            try {
+                const { data: { users } } = await supabase.auth.admin.listUsers();
+                const targetUser = users.find(u => u.email?.toLowerCase() === app.email?.toLowerCase());
+                if (targetUser) {
+                    await supabase.from('profiles').update({ affiliate_code: affiliateCode }).eq('id', targetUser.id);
+                    console.log(`[AFFILIATE] Synced code ${affiliateCode} to profile ${targetUser.id}`);
+                }
+            } catch (err) {
+                console.warn("[AFFILIATE] Failed to sync profile:", err.message);
+            }
         }
 
         const { error: updateError } = await supabase
@@ -334,6 +350,12 @@ router.post('/admin/affiliates/:id/:action', async (req, res) => {
         }
 
         try {
+            console.log(`[AFFILIATE] Sending email...
+                To: ${app.email}
+                Subject: ${subject}
+                CC: jobspeakpro@gmail.com
+            `);
+
             await sendEmail({
                 to: app.email,
                 subject: subject,
@@ -342,7 +364,7 @@ router.post('/admin/affiliates/:id/:action', async (req, res) => {
                 cc: 'jobspeakpro@gmail.com',
                 fromName: 'JobSpeakPro Affiliate Team'
             });
-            console.log(`[SendPulse] Sent ${action} email to ${app.email}`);
+            console.log(`[SendPulse] Sent ${action} email to ${app.email} + CC to Admin`);
 
             // Log email success to DB
             const timestamp = new Date().toISOString();

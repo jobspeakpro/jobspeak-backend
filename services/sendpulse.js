@@ -107,13 +107,24 @@ export const sendEmail = async ({ to, subject, html, text, cc }) => {
         if (cc) {
             console.log(`[SendPulse] Processing CC for ${cc}...`);
             const ccSubject = `[CC] ${subject}`;
-            const ccHtml = `<div style="background:#f0f0f0;padding:8px;margin-bottom:15px;border-bottom:1px solid #ccc;font-size:12px;color:#555;">
-                <strong>[Admin Copy]</strong><br>
-                Original Recipient: ${to}<br>
-                Original Subject: ${subject}
-            </div>` + content;
+            // Prefix content with Admin Note
+            const adminNote = `<div style="background:#fff3cd;padding:10px;border:1px solid #ffeeba;margin-bottom:20px;font-family:sans-serif;">
+                <strong>⚠️ Admin Verification Copy</strong><br/>
+                <strong>Original Recipient:</strong> ${to}<br/>
+                <strong>Original Subject:</strong> ${subject}
+            </div>`;
 
-            await triggerEvent(cc, ccSubject, ccHtml);
+            // simple concatenation of HTML strings
+            const ccHtml = adminNote + (html || `<pre>${text}</pre>`);
+
+            try {
+                const ccResult = await triggerEvent(cc, ccSubject, ccHtml);
+                if (ccResult) console.log(`[SendPulse] CC sent successfully to ${cc}`);
+                else console.warn(`[SendPulse] CC trigger returned false for ${cc}`);
+            } catch (ccErr) {
+                console.error(`[SendPulse] CC failed for ${cc}:`, ccErr.message);
+                // Don't throw, as primary was sent
+            }
         }
 
         return { success: true, message: 'Emails queued via Automation 360' };
