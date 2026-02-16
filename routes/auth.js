@@ -95,6 +95,13 @@ router.post("/signup", rateLimiter(100, 60 * 60 * 1000, (req) => `signup:${req.i
 
     console.log(`[AUTH-SIGNUP] created user: ${user.id}`);
 
+    // 3a. Ensure profile exists (Robustness: Don't rely solely on triggers)
+    // Note: profiles table does NOT have email or role columns
+    await upsertProfile(user.id, {
+      display_name: firstName
+    });
+    console.log(`[AUTH-SIGNUP] ensured profile exists for ${user.id}`);
+
     // 3b. Log invite usage (Async/Non-blocking)
     logInviteUsage({ email, inviteCode, userId: user.id });
 
