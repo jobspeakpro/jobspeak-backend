@@ -1,0 +1,8 @@
+⚠️  Node.js 18 and below are deprecated and will no longer be supported in future versions of @supabase/supabase-js. Please upgrade to Node.js 20 or later. For more information, visit: https://github.com/orgs/supabase/discussions/37217
+[STT] ❌ FFMPEG_NOT_AVAILABLE: spawn UNKNOWN
+[SUPPORT] DB Insert Failed (Non-fatal): {
+  code: 'PGRST205',
+  details: null,
+  hint: "Perhaps you meant the table 'public.mock_sessions'",
+  message: "Could not find the table 'public.support_messages' in the schema cache"
+}

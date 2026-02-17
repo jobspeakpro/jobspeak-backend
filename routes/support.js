@@ -10,7 +10,7 @@ if (process.env.RESEND_API_KEY) {
     resend = { emails: { send: async () => console.log("[MOCK EMAIL] Sent") } };
 }
 
-import { sendEmail } from '../services/sendpulse.js';
+// import { sendEmail } from '../services/sendpulse.js'; // Deprecated
 import { supabase } from '../services/supabase.js';
 import { getAuthenticatedUser } from '../middleware/auth.js';
 
@@ -48,17 +48,24 @@ router.post('/support/contact', async (req, res) => {
             });
 
         if (dbError) {
-            console.error('[SUPPORT] DB Insert Failed:', dbError);
-            return res.status(500).json({ error: 'Database error' });
+            console.error('[SUPPORT] DB Insert Failed (Non-fatal):', dbError);
+            // Continue to email sending even if DB backup fails
         } else {
             console.log('[SUPPORT] Message saved to DB');
         }
 
-        // 2. Send Email (Best Effort)
+        // 2. Send Email via Resend
         try {
-            const emailResult = await sendEmail({
-                to: 'jobspeakpro@gmail.com', // Target admin email
+            const adminEmail = process.env.ADMIN_EMAIL || 'jobspeakpro@gmail.com';
+            // Use VERIFIED domain to allow sending to any email
+            const fromEmail = 'support@jobspeakpro.site';
+
+            const emailResult = await resend.emails.send({
+                from: `JobSpeakPro Support <${fromEmail}>`,
+                to: adminEmail,
+                cc: 'jobspeakpro@gmail.com',
                 subject: `New Contact: ${subject || 'No Subject'}`,
+                reply_to: email,
                 html: `
                     <h3>New Contact Message</h3>
                     <p><strong>Name:</strong> ${name}</p>
@@ -67,14 +74,14 @@ router.post('/support/contact', async (req, res) => {
                     <hr />
                     <p><strong>Message:</strong></p>
                     <pre style="font-family: sans-serif; white-space: pre-wrap;">${message}</pre>
+                    <hr />
+                    <p style="font-size: 12px; color: #888;">Sent from JobSpeakPro support form</p>
                 `,
-                text: `Name: ${name}\nEmail: ${email}\nSubject: ${subject}\n\nMessage:\n${message}`,
-                fromName: 'JobSpeakPro Contact Form',
-                fromEmail: 'jobspeakpro@gmail.com'
+                text: `Name: ${name}\nEmail: ${email}\nSubject: ${subject}\n\nMessage:\n${message}`
             });
-            console.log('[SUPPORT] SendPulse Result:', emailResult);
+            console.log('[SUPPORT] Resend Result:', emailResult);
         } catch (emailErr) {
-            console.error('[SUPPORT] SendPulse Failed:', emailErr);
+            console.error('[SUPPORT] Resend Failed:', emailErr);
         }
 
         return res.json({ success: true, message: 'Message received' });

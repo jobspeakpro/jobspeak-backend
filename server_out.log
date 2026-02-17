@@ -1,0 +1,41 @@
+[DB] Using in-memory storage (no SQLite dependency)
+🔧 Stripe/Billing environment check:
+  - STRIPE_SECRET_KEY: ✅ present
+  - STRIPE_WEBHOOK_SECRET: ❌ missing
+  - STRIPE_PRICE_ID_MONTHLY: ✅ present
+  - STRIPE_PRICE_ID_ANNUAL: ✅ present
+  - FRONTEND_URL: ✅ present
+  - STRIPE_BILLING_PORTAL_RETURN_URL: ⚠️ will fall back to FRONTEND_URL if set
+=== TTS STARTUP ===
+TTS: hasGoogleCreds=false
+TTS: hasElevenLabsKey=true
+TTS: hasOpenAIKey=true
+TTS: primaryProvider=ELEVENLABS
+===================
+[SENTRY] SENTRY_DSN not set, skipping initialization
+[STARTUP] Mounting Routes...
+[ENTITLEMENTS] ✅ Route mounted at /api/entitlements
+[MIGRATION] Middleware: Skipping automatic migrations due to missing DATABASE_URL
+✅ Backend listening on 0.0.0.0:8080
+[DEPLOY] Entitlements-Migration-Runner
+[SUPPORT] Resend Result: {
+  data: { id: '830ac968-ba44-4189-872c-ef26c70b771f' },
+  error: null,
+  headers: {
+    'cf-cache-status': 'DYNAMIC',
+    'cf-ray': '9cf23ccfea4bcca4-ORD',
+    connection: 'keep-alive',
+    'content-encoding': 'br',
+    'content-type': 'application/json',
+    date: 'Tue, 17 Feb 2026 03:35:56 GMT',
+    'ratelimit-limit': '2',
+    'ratelimit-policy': '2;w=1',
+    'ratelimit-remaining': '1',
+    'ratelimit-reset': '1',
+    server: 'cloudflare',
+    'transfer-encoding': 'chunked',
+    'x-resend-daily-quota': '11',
+    'x-resend-monthly-quota': '38'
+  }
+}
+2026-02-17T03:35:55.887Z [65gj06bmlq1wi5r] POST /support/contact 200 900ms

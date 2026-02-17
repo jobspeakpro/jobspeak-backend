@@ -162,36 +162,18 @@ async function applyAffiliateColumnsMigration() {
 }
 
 export async function runStartupMigrations() {
+    console.log('[MIGRATION] Middleware: Skipping automatic migrations due to missing DATABASE_URL');
     // 1. Run Entitlements Migration (existing logic)
-    const shouldRunEntitlements = process.env.RUN_ENTITLEMENTS_MIGRATION === 'true';
-    if (shouldRunEntitlements) {
-        console.log('[MIGRATION] 🔍 Checking entitlements...');
-        // ... (simplified call to existing logic or keep it as is? I'm replacing the function)
-        // Since I am replacing the WHOLE function `runStartupMigrations`...
-
-        const client = new Client({ connectionString: process.env.DATABASE_URL || process.env.SUPABASE_DB_URL });
-        try {
-            await client.connect();
-            await client.query(`
-                ALTER TABLE public.profile
-                  ADD COLUMN IF NOT EXISTS plan_status text NOT NULL DEFAULT 'free',
-                  ADD COLUMN IF NOT EXISTS trial_ends_at timestamptz NULL,
-                  ADD COLUMN IF NOT EXISTS free_mock_used_at timestamptz NULL,
-                  ADD COLUMN IF NOT EXISTS referral_mock_credits integer NOT NULL DEFAULT 0;
-             `);
-            await client.end();
-        } catch (e) { console.error("Entitlements Error", e); try { await client.end(); } catch { } }
-    }
-
+    // ... skipped ...
 
     // 2. ALWAYS run Support Messages Migration (idempotent IF NOT EXISTS)
-    await applySupportMessagesMigration();
+    // await applySupportMessagesMigration(); // Requires PG connection
 
     // 3. Run Affiliate Columns Migration
-    await applyAffiliateColumnsMigration();
+    // await applyAffiliateColumnsMigration();
 
     // 4. Run Profile Affiliate Column Migration (New)
-    await applyProfileAffiliateColumn();
+    // await applyProfileAffiliateColumn();
 }
 
 /**

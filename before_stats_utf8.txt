@@ -1,0 +1,363 @@
+﻿--- DB STATS ---
+Auth Users Count: 50
+ - referred_user_1771213496705@example.com (bc3fdd9f-5f3c-4131-b309-f4f64c6ba409)
+ - affiliate_test_1771213496704@example.com (4b0cb6ec-526e-4c8d-b582-5190c02f5307)
+ - optional_user_6152@test.com (64b0eb9f-d5d1-479b-94b2-be076ce542eb)
+ - applicant_aff_3903@test.com (db96fda3-e66f-43ef-b5e3-119f1e3866f9)
+ - applicant_ref_3903@test.com (114c1b3c-9423-4a2e-815a-5e67056d4099)
+ - referrer_aff_3903@test.com (4aa0e50b-5edd-42d0-b474-d1fcdfbbd0c5)
+ - referrer_ref_3903@test.com (d2a40d1a-edb2-4b3d-8a21-43b6011979f3)
+ - applicant_aff_7753@test.com (357af81d-c410-46b4-98d5-5221148b9fcb)
+ - applicant_ref_7753@test.com (4d713f99-8671-436a-9d9b-9292e2b1660b)
+ - referrer_aff_7753@test.com (1f46c3c0-470f-4e3a-ab80-1fec700fa480)
+ - referrer_ref_7753@test.com (2c39e741-b52f-4666-ba7c-c06316e8154a)
+ - applicant_ref_3211@test.com (e31370e6-bcd7-4155-8e62-1527e1641dbf)
+ - referrer_aff_3211@test.com (43ef7fbf-31fc-4e1d-94e3-3dd9c76172d0)
+ - referrer_ref_3211@test.com (1a1807e6-3a30-4d02-9c8b-ffebd0615bbb)
+ - referrer_aff_4944@test.com (2841a9f7-8e88-4662-94ed-e06d4de2dd54)
+ - referrer_ref_4944@test.com (0941a4ac-c9cd-49f4-817f-2b5a8ee64fca)
+ - applicant_aff_9701@test.com (6bc81950-4b8d-4f06-aa9e-8b3977f582cc)
+ - applicant_ref_9701@test.com (6f6d0dd3-82b0-4320-bfe5-b5fe3a3c9949)
+ - referrer_aff_9701@test.com (670c2796-9ef5-41b3-84c4-1ae9da6d1e95)
+ - referrer_ref_9701@test.com (e993c809-f35e-4996-bd23-64c5bf7748cf)
+ - applicant_ref_1321@test.com (73240243-04c8-4c9a-9882-457e76cee904)
+ - referrer_aff_1321@test.com (e25fcded-4b94-458c-9892-a5a2ab3c3674)
+ - referrer_ref_1321@test.com (a4c6fdd5-feb1-43e5-a4ca-6bc01f215ce2)
+ - referred_user_1771208751583@example.com (e1ae2130-a00b-4bd5-83e4-7d07a91bc84b)
+ - affiliate_test_1771208751583@example.com (16b07dd0-2656-4f18-ae90-3c7e104a6498)
+ - affiliate_test_1771206315571@example.com (f4240ae8-dc9e-4026-9176-bd6e8a728601)
+ - affiliate_test_1771206296417@example.com (31560d28-87d0-4482-bdce-b488e80475c2)
+ - affiliate_test_1771206265663@example.com (05e9964c-a669-4849-9dbd-06ec7e7920cb)
+ - affiliate_test_1771206246731@example.com (918e8f5e-94ec-4d57-995d-eeb46f1e5bfe)
+ - affiliate_test_1771206231690@example.com (56462519-ff85-48ac-999d-ebeba9af865b)
+ - verification2@test.com (790c5ff4-2020-45b9-8064-c76994b6a649)
+ - verification@test.com (6758c420-0bd1-493a-b4de-ee96d54effe3)
+ - test+2@example.com (57697e40-9944-491d-b9b4-8eccc97192cc)
+ - josjh@gmail.com (60153423-1736-4ba3-aea7-c4fc1c1f4988)
+ - test_user_7@example.com (e4c0922c-fa71-4c75-b1c5-b93d07247d4f)
+ - test_user_6@example.com (6ddea258-f23c-4e82-beaa-3d812804b274)
+ - test_user_jetski_1@example.com (ce307776-df43-4ea8-ae1d-6c0565d438eb)
+ - test+local_987@test.com (5db76d24-9717-40ed-8181-9fe55363dc45)
+ - testuser_1357@example.com (d0430d72-4f0d-4182-ba06-e34d3d2e791b)
+ - testuser_8192@example.com (27b56972-84c0-45aa-96b2-b611b32a5251)
+ - testuser_9582@example.com (204baa68-0e38-4a15-9b96-32808d0a9106)
+ - antigravity_admin@test.com (fdbae406-e9ab-4c1e-98aa-36ab264d4d8d)
+ - jobspeakpro+user22@gmail.com (773247b2-d5cb-4474-b934-19dc8a3cb6a7)
+ - jobspeakpro+user21@gmail.com (057c1e17-aa14-41dd-a55e-d00c90accdf8)
+ - jobspeakpro+u15_mobile@gmail.com (0f36b80c-0c90-4afe-8698-704ec9926e1f)
+ - jobspeakpro+u14_pro@gmail.com (d0c288d0-32ad-4cc5-8da3-a1039f89954b)
+ - jobspeakpro+u13_affiliate@gmail.com (2617dee2-5735-4e27-b549-222077e68b24)
+ - jobspeakpro+u12_referee@gmail.com (7465b63b-aa98-47a7-ac6e-9f0a5175af41)
+ - jobspeakpro+u11_ref@gmail.com (454a447e-f7de-4adc-9faa-36dae6aaeb45)
+ - jobspeakpro+u5_mobile@gmail.com (103ed4de-1569-42f7-8769-7984179e6e3a)
+Retrying profile fetch without email column...
+Public Profiles Count: 309
+ - [ID: 790c5ff4-2020-45b9-8064-c76994b6a649] verification2@test.com
+ - [ID: 654d39fb-ef97-491d-bacb-a0851f26a1fc] 
+ - [ID: f9a1e27e-8e06-45ca-9a2c-f1b7c723c999] 
+ - [ID: c9dadd0a-912b-478d-8de0-48396b1a00bb] 
+ - [ID: e3d3a49c-6040-4b73-a3f6-6bf3c56e126e] 
+ - [ID: 49f42901-c4fb-4bb2-b513-f1de52dcc2b4] 
+ - [ID: cafe0f8d-d5ac-4d08-acc0-690b1b7aece6] Josh
+ - [ID: c6bf697f-da83-455c-874d-1e59efcaa672] 
+ - [ID: 3801b0ff-ba02-40b6-9d9e-1e8e2d37bd40] Jerry
+ - [ID: 675af807-22a7-4e13-b4fa-eb61530a86ad] Gary
+ - [ID: 1fa7235f-8e95-4728-9b9c-c9225c057bf2] 
+ - [ID: a04dd206-48cc-46f3-b1d2-442e9a2274d7] firanon206@24faw.com
+ - [ID: 51c338bc-3b4b-45a3-a6f4-7477d340c3c2] Adrian
+ - [ID: ab142e23-6838-4dad-8770-6353da697275] f
+ - [ID: 0c3f2ebf-f7cb-4ead-b314-21a85970604d] Jerry.
+ - [ID: e1ae2130-a00b-4bd5-83e4-7d07a91bc84b] referred_user_1771208751583@example.com
+ - [ID: 16b07dd0-2656-4f18-ae90-3c7e104a6498] Test Affiliate
+ - [ID: 8642f36e-864c-4eca-8da9-707a7ea0f788] null
+ - [ID: 5ea5c877-0088-4b53-a530-0e8aefb8ac41] no more damn bugs
+ - [ID: 937ac81c-42dc-4d96-8184-346f7af753a8] Fred
+ - [ID: 425bdb56-3f69-4e52-b120-08f770215784] Gary
+ - [ID: 99b813c0-e789-4983-baad-b2f3a830a070] derepi3071@dubokutv.com
+ - [ID: 99df0840-3105-40ff-beb0-73b023cd0a4c] jalel41003@24faw.com
+ - [ID: d58a8cc3-2f5e-4c66-8d09-695606a0f35c] matay67801@icousd.com
+ - [ID: 8100242c-c898-40eb-b299-f34c9297c23a] lajoki7539@emaxasp.com
+ - [ID: d18e8798-a31e-4317-8642-3aa200c92169] Adam
+ - [ID: f33afe3d-a368-41cf-ba8e-5671301bbe30] verifytest123@gmail.com
+ - [ID: bd757abb-fb25-4a8b-88b8-63e8eb4fd793] verifytest12345@gmail.com
+ - [ID: 130897f4-d760-4efa-9764-285287779d88] Jerry
+ - [ID: 91ebdd74-babe-4d5e-9265-2b99b724f45a] gefeca2381@cameltok.com
+ - [ID: d65f4e04-ae43-431f-9915-0f5098953a79] mowak92278@cameltok.com
+ - [ID: 30af7298-faf5-4b45-a257-302c35dd4ae9] big
+ - [ID: 0793f1bd-9415-4398-8cb1-0fc1aaa9cf55] kosoreg977@24faw.com
+ - [ID: 88e3e470-f604-433b-a01c-9401304f0871] Bob
+ - [ID: db3a5d29-3047-45f4-bfed-45ffbe5ff029] Bob
+ - [ID: 95dd5849-31dd-4b64-b9fc-c3e429479f43] qa.tester.final.03@gmail.com
+ - [ID: e5c73002-285e-49b9-abef-cb7a321482b3] d
+ - [ID: 1f554826-51de-400b-8b39-0c8771f032b4] Test User
+ - [ID: 58bf729a-e2ea-4c9f-af5f-35e11f584d4d] Victor
+ - [ID: 95ac03c7-2c85-433b-8ff4-ac1b07ee6185] pogoniv546@cucadas.com
+ - [ID: 3133fec0-2ee0-4952-b7ae-153847ae2452] getixeg609@dubokutv.com
+ - [ID: f963a42a-ed1a-47f3-958b-499ce3165f3b] bobby
+ - [ID: 3906f10e-42ed-48dd-9950-66ef64e4ff95] hiwama3627@cucadas.com
+ - [ID: dc16f634-9093-4250-bafb-5a128b6f4048] hagek17002@cucadas.com
+ - [ID: 9f096a6d-8b1c-4a0e-9ef4-e7f619525a1b] kosobek427@icousd.com
+ - [ID: 9ad8262f-f16e-4ab2-b38f-19bae6db5e9c] xabove1183@emaxasp.com
+ - [ID: 9a69c7c4-4708-4201-8861-c07a4489877a] ladesef352@24faw.com
+ - [ID: 1d75595c-5ebf-4960-9bef-e1533b902b58] rerw
+ - [ID: 7f0ce239-ca3c-4786-b51a-e97334051eae] goberap726@emaxasp.com
+ - [ID: 5b8ccdc5-fe0f-4630-9f8c-12ed2e018aeb] wehiri8048@emaxasp.com
+ - [ID: b8fffa78-c519-44a0-835c-650a24df8050] vidaji3967@gavrom.com
+ - [ID: a6c0c44d-8f58-4967-ad91-682ef402a072] qa_final_screenuser_v2@gavrom.com
+ - [ID: 2bd71c65-2005-402e-bc24-1ac6b9282589] john
+ - [ID: 3749db11-767d-47e7-aff3-68449efb4e56] xopahe5691@gavrom.com
+ - [ID: 717ca435-0a94-4e54-9a8e-52dcf3631b62] nho
+ - [ID: 8659b037-80e3-4b30-94e1-83ef30f911a3] d
+ - [ID: 09302c03-8892-489f-8e10-314a99e43c24] qa_test_unique_456@gavrom.com
+ - [ID: 572de3a1-ad2d-4241-be15-15e841b18c84] qa_ultimate_20@gavrom.com
+ - [ID: 592e6016-b50e-4502-93b3-450865f19854] qa.e2e.jan03@gmail.com
+ - [ID: ca98672d-fde3-45ef-92bc-1412417ca8b8] tester_j3@gmail.com
+ - [ID: b7213118-eb43-4884-b487-2e73c6fd5af6] vyep0u+eqdc00dzbdk9c@sharklasers.com
+ - [ID: 80598c48-6e93-4439-b109-77d6f476c019] jetski_qa_2@sharklasers.com
+ - [ID: 74bc229c-329f-4d90-ba01-4a7b1120c175] test_audio_20250109_1@guerrillamail.com
+ - [ID: 23c9fefe-a9ab-464c-9a31-b4bec6aa447b] test_audio_mobile_before_1@guerrillamail.com
+ - [ID: 36003bbf-10b6-4465-b7ac-efa8a6c03775] test_mob_999@guerrillamail.com
+ - [ID: 052c56a1-1d5a-4d89-8a33-de524685941b] test_mob_fast@guerrillamail.com
+ - [ID: 7d97d71d-92d0-4b45-b9e6-d2bc7b35debd] siyuemoon@gmail.com
+ - [ID: 8250d152-1275-441b-9169-fdc0ef644cbd] jsp.qa.101@jobspeakpro-test.local
+ - [ID: 194194b6-9269-47e6-a0c5-6ff609d1335c] jsp.qa.102@jobspeakpro-test.local
+ - [ID: 1196ec81-f18f-4def-bad4-22975a4cca61] jsp.qa.103@jobspeakpro-test.local
+ - [ID: b72a2703-689c-436c-89eb-116830e3c98c] April
+ - [ID: a4d2e4db-9511-462a-97b3-55d7a94b8560] jsp.qa.004@jobspeakpro-test.local
+ - [ID: bd784415-67f3-41c6-a226-e56540e44436] jsp.qa.005@jobspeakpro-test.local
+ - [ID: 6c153287-c7bf-4f64-9216-d45d2c8e0070] jsp.qa.006@jobspeakpro-test.local
+ - [ID: dbb3ed1e-f85f-4abd-b91e-9c4f6e900e19] jsp.qa.007@jobspeakpro-test.local
+ - [ID: 93939a49-ca6f-4a03-885d-056210ddce43] jsp.qa.008@jobspeakpro-test.local
+ - [ID: a986cb55-5fac-4937-b004-71118341def6] jsp.qa.009@jobspeakpro-test.local
+ - [ID: 151b8e21-5454-4b87-9f9c-f5d4a6f62b73] jsp.qa.010@jobspeakpro-test.local
+ - [ID: cdd3c9b7-2895-4cfc-93a7-ae04cf294eca] jsp.qa.011@jobspeakpro-test.local
+ - [ID: 0a08a0e0-5e68-41b3-879e-0063865969f9] jsp.qa.012@jobspeakpro-test.local
+ - [ID: 8012b8b4-3305-45cb-8709-dcd825ecfe1f] jsp.qa.013@jobspeakpro-test.local
+ - [ID: 06948774-77ad-4cf7-9974-5c5a4fc50fee] jsp.qa.014@jobspeakpro-test.local
+ - [ID: c29fd67b-af1d-47b7-86be-460c8eda440e] jsp.qa.015@jobspeakpro-test.local
+ - [ID: cb65563f-39db-4cd5-b7d9-beee5694e209] jsp.qa.016@jobspeakpro-test.local
+ - [ID: 1acad78c-f633-47c8-b330-4a48fc3c40e7] jsp.qa.017@jobspeakpro-test.local
+ - [ID: 07612a37-72f0-43db-8cad-bf500d7228bf] jsp.qa.018@jobspeakpro-test.local
+ - [ID: fa2b6b18-5ea8-4fb7-8045-f8b609d3d927] jsp.qa.019@jobspeakpro-test.local
+ - [ID: c4424c5c-81ad-4213-bd9a-53b6f0b66e0c] jsp.qa.020@jobspeakpro-test.local
+ - [ID: 8cb42209-6460-43bb-91e2-78dbeb0b64a6] jsp.qa.021@jobspeakpro-test.local
+ - [ID: 3827f895-3735-4739-9ec9-ec2bfb383885] jsp.qa.022@jobspeakpro-test.local
+ - [ID: 5f5512bd-36a4-4506-9398-8c9403fd1de6] jsp.qa.023@jobspeakpro-test.local
+ - [ID: 37b6a5b4-3739-4c66-b145-901a02fa6649] jsp.qa.024@jobspeakpro-test.local
+ - [ID: cc156ca5-d1c4-4d33-93e4-e5df9c2f2562] jsp.qa.025@jobspeakpro-test.local
+ - [ID: b8f5d633-23c7-4405-9bdd-215de3403c05] jsp.qa.026@jobspeakpro-test.local
+ - [ID: bb8c4a86-ae4b-4c5d-b3bc-3317513fbb5e] jsp.qa.027@jobspeakpro-test.local
+ - [ID: 50091279-3e48-443b-a83a-24b08a93ac9c] jsp.qa.028@jobspeakpro-test.local
+ - [ID: c9ea198f-801b-4be8-a588-0e0fadef19ac] jsp.qa.029@jobspeakpro-test.local
+ - [ID: 9edf016e-1383-4fc6-b1bb-d0b41b8463da] jsp.qa.030@jobspeakpro-test.local
+ - [ID: 2b8a7cc5-99bb-4140-9021-6954559a8f66] jsp.qa.104@jobspeakpro-test.local
+ - [ID: f5d7be50-9ef7-4c95-891e-a87a6a9c4822] jsp.qa.105@jobspeakpro-test.local
+ - [ID: f17daa16-ef58-4cd1-9430-2fa857cdfbeb] jsp.qa.106@jobspeakpro-test.local
+ - [ID: b68998fd-ed11-4463-9302-d2c5a67ccad5] jsp.qa.test.999@mailinator.com
+ - [ID: 56462519-ff85-48ac-999d-ebeba9af865b] affiliate_test_1771206231690@example.com
+ - [ID: 56469290-9eb9-41a9-88da-c39c5ebc506d] hetef80416@lawicon.com
+ - [ID: 07fb197e-7fcb-4cc9-89d0-dff2d1b456d6] rigofab404@gxuzi.com
+ - [ID: 82a15cb0-23cc-45cf-b67a-b082e16b235d] cimim45916@okexbit.com
+ - [ID: 918e8f5e-94ec-4d57-995d-eeb46f1e5bfe] affiliate_test_1771206246731@example.com
+ - [ID: 4bf7460a-3b52-4d93-b047-3bef27916dd2] jack
+ - [ID: 8ba23d64-cf15-47ca-b741-f4b81cf9536a] s
+ - [ID: 8fad4d6c-fb3b-45b2-aa85-aeccb4a80228] bob
+ - [ID: d1b3cb00-bb92-4cbc-b2f7-1e3f4b8c99f0] jsp.qa.002@jobspeakpro-test.localQA Two
+ - [ID: 9e0d611d-9222-4d4e-bef9-5c596ece0906] jsp.qa.003@jobspeakpro-test.local
+ - [ID: 0c479d2c-f983-4dca-a2ee-e06d0b86280d] nehome4936@okexbit.com
+ - [ID: 0d57ae07-4105-48b0-98d9-8a3efb33e86a] curl_usr_1769283410113@example.com
+ - [ID: 7c1ba42f-a5a6-40f0-a9c6-1d84df7093a7] curl_ref_1769283410113@example.com
+ - [ID: 6e5c0126-e74f-4440-8642-8fa02952c486] yebajos694@okexbit.com
+ - [ID: 7fa35e2c-c48e-492d-a925-22a54a619bdb] curl_usr_1769283581149@example.com
+ - [ID: b0d24186-0730-4eba-be31-33c50b90b666] curl_ref_1769283581149@example.com
+ - [ID: 163f4b35-74b6-490c-bcde-477784975f40] curl_ref_1769283724884@example.com
+ - [ID: a59e7942-be00-4082-9f7a-2a1066a1c7ef] curl_usr_1769283672366@example.com
+ - [ID: ca3479cf-b645-4725-9568-75434e4ce670] curl_ref_1769283672366@example.com
+ - [ID: dba5a544-0051-469e-ae31-f9d4bc5b8c7f] curl_usr_1769283724884@example.com
+ - [ID: a6207f28-2f43-4897-afca-a4f5b239ecd9] curl_ref_1769283778482@example.com
+ - [ID: f59035d6-8563-4864-a7a8-06b7006bb041] curl_usr_1769283778482@example.com
+ - [ID: 2000c654-3968-4455-9258-8d5f60c62ca4] curl_ref_1769283924809@example.com
+ - [ID: 05f31cca-8155-4bf2-b67d-279d003ce908] curl_usr_1769283924809@example.com
+ - [ID: fcc1ce19-9454-4692-873e-89dd315c0792] xififek218@ixunbo.com
+ - [ID: 2ab9fa38-d4fd-439b-ad10-b1aba2ddc827] jobspeak_test_7779@yopmail.com
+ - [ID: 288b8548-9137-49b9-aae5-d7902a3167d9] jobspeak_test_88770@yopmail.com
+ - [ID: 4d418dda-456d-4ee9-99fa-713bd4974de4] jobspeak_test_69152@yopmail.com
+ - [ID: 8f63a469-9669-4fb6-b7ee-cc0a38e922e0] referrer_1769288202029@test.com
+ - [ID: f7bcf04c-d350-4ffb-a918-a1a8385f0939] referred_1769288202029@test.com
+ - [ID: bb9e92ba-9dda-42a9-a95c-fbb8a6d6e238] QAQA 001Test User
+ - [ID: b38c5d39-c9da-445d-9b21-1ff4506d71e5] jobspeak_bypass_50716@yopmail.com
+ - [ID: d5973f05-cd07-4c50-ac37-5329ebcda222] jobspeak_bypass_55942@yopmail.com
+ - [ID: 238ca484-884c-40d0-bc4c-0fe7415fdcf8] jobspeak_bypass_56085@yopmail.com
+ - [ID: 2259ad2d-1162-4188-9af0-8bdc9066b9ed] jobspeak_bypass_89055@yopmail.com
+ - [ID: a0c3a863-dc7f-4d89-8c6b-2344b7ce9723] jobspeak_ref_68469@yopmail.com
+ - [ID: 93743602-36cc-4490-ae9f-75c9377eca1b] jobspeak_ref_62676@yopmail.com
+ - [ID: 726dba4f-84d1-4851-8d35-75f32c867d2e] jobspeak_ref_59857@mailinator.com
+ - [ID: 876b5a2e-67ad-41b8-b633-d9728675364c] jobspeak_1769291556136_38@virgilian.com
+ - [ID: 6d312e07-c063-43a0-9cee-4cf402b24e08] facumnqh@guerrillamailblock.com
+ - [ID: 4da05ddd-821d-458a-bc8c-c2800cea993f] bwrqdgyw@guerrillamailblock.com
+ - [ID: c395da4d-3f34-4e07-a706-af7f75284a33] pmdrjeko@guerrillamailblock.com
+ - [ID: 3467dceb-552a-474e-8d1c-7354579cf3cd] qqorsrpb@guerrillamailblock.com
+ - [ID: ec74e943-b67c-4ef7-91da-10d972221ab9] irxrtdyp@guerrillamailblock.com
+ - [ID: 7bb4d30c-f7fe-4360-9732-1445cfafd6d2] dznpxejm@guerrillamailblock.com
+ - [ID: ae69d984-803a-4bae-809c-128445128774] razvhjzd@guerrillamailblock.com
+ - [ID: 1cee9085-746a-448d-834c-a67c2c8491d2] uqiwuwsy@guerrillamailblock.com
+ - [ID: 402d43a9-7114-4ccb-b455-db1d16b9d6ad] joxami4250@ixunbo.com
+ - [ID: 13fc199c-8ed7-406a-ae7a-5a563792b811] verify_v4_1769312553884@example.com
+ - [ID: 1273cefa-c952-474d-9b9e-96f9009eb78a] verify_v4_1769312587044@example.com
+ - [ID: 23cce270-958b-4034-babf-f3fe4d6a11ea] prod_verify_v4_1769314170258@example.com
+ - [ID: 1b7d1017-8cc1-464b-a089-ab1fabec8de4] prod_verify_v4_1769314188262@example.com
+ - [ID: 29b22c2b-1741-4970-a32f-8e763d5fd2df] prod_verify_strict_1769314782867@example.com
+ - [ID: 18ec7bbe-aef6-4e6d-8f43-fd928e4e113d] prod_verify_strict_1769314793426@example.com
+ - [ID: e7f5515d-b242-44ac-85dc-de72de9488d1] prod_verify_strict_1769314803710@example.com
+ - [ID: e648e8f4-3e5c-47f1-9558-dcc972776741] prod_verify_strict_1769314815822@example.com
+ - [ID: 16a17c0a-f578-45df-83e9-cbd11de88efa] prod_verify_strict_1769314829993@example.com
+ - [ID: db3a1180-de0f-4733-8a52-bb140c1e286b] prod_verify_strict_1769314853913@example.com
+ - [ID: 3ef10872-5e57-4ac6-a25f-346f9562a8a5] prod_verify_strict_1769314935971@example.com
+ - [ID: 75892867-ae16-46cc-a95b-ff164938f2a0] prod_verify_strict_1769316506207@example.com
+ - [ID: e3927fdf-39db-431e-9bc0-ad9abdf03893] prod_verify_strict_1769391028078@example.com
+ - [ID: a73fad39-db76-40bc-b2ea-fab8d06c5b8c] prod_verify_strict_1769391338109@example.com
+ - [ID: 8ece00ca-2fca-4295-8fc0-9edcdc41eb61] prod_verify_strict_1769391482213@example.com
+ - [ID: 987d0575-776d-4eb4-8d38-c8f88105cbf5] prod_verify_strict_1769391571318@example.com
+ - [ID: f593e130-5a53-4334-b9b3-5950cd1288fc] verification_1769391850782@gmail.com
+ - [ID: 8c7511c0-de22-4164-a851-f73fa9d6900e] verification_1769391868205@gmail.com
+ - [ID: 4bf4d66b-43d8-4ed3-8bde-bc2e6abc5693] capiwav231@okexbit.com
+ - [ID: 0687a582-60e2-46f1-af8d-c64027d9121f] fTest Userj
+ - [ID: c1b1e13b-cf99-445a-9f37-1f528e95a8da] sovop30144@ixunbo.com
+ - [ID: bc2439eb-1620-4806-b07b-f17d9d7fb8ae] testproof123@gmail.com
+ - [ID: 0f1e3f87-a2fa-4341-97f6-6ef407a42f4d] testreferral123@mailnesia.com
+ - [ID: 45151225-64d0-4640-beb7-893264ff1c45] test_ref_acct1@jobspeakpro.com
+ - [ID: cc263130-43b7-4408-a30a-25f1c0522b53] test-referral-jobspeak@mailinator.com
+ - [ID: 4e71f1b3-9cc6-4e61-a57d-dfc8b666be57] poly-test-1@jobspeakpro.com
+ - [ID: f670f7d6-b2fd-4b3b-8cad-6d5271aba472] test+run1_20240127_1622@mailinator.com
+ - [ID: 72e1084c-b068-473f-8e83-e04347b7da3d] jsp-run1-1624@mailinator.com
+ - [ID: bd061e78-d071-416b-b063-bd66b5fcb24f] ref_host_1737976156@mailinator.com
+ - [ID: 00a1ee85-4e4a-4099-9d7e-65a7c2760adb] ref_b_1737976156_2@mailinator.com
+ - [ID: cb11d57e-9a1e-4bc3-bec9-6f23be38e440] referrer User
+ - [ID: 292b3e40-49fe-4ee0-8919-c995e40a3dc0] referee1 User
+ - [ID: 89635c35-4186-4a29-9a4e-1dc3f6981035] referee2 User
+ - [ID: 0717197a-165c-44b7-b488-459f06bdc960] referee3 User
+ - [ID: eb5fbb9e-f297-4ee7-9a8f-8a65e179ef5e] referee1 User
+ - [ID: 12eccf8e-462e-41ae-b818-9243dade4744] ref_b_1737976156@mailinator.com
+ - [ID: eeec9a76-039e-4563-9117-b6ec832327c4] jsp_ui_fix_02@mailinator.com
+ - [ID: 9aa2199d-536c-43c3-977f-8d96418d4b72] jsp_ref_02@mailinator.com
+ - [ID: bbeabd20-b683-43bb-9f26-231e4f1cc4fb] referee2 User
+ - [ID: dac33d88-783c-4c84-9920-77d9fefbc5a4] referrer User
+ - [ID: 358ce8fe-cd3d-4270-a522-e43b56c565c2] referee3 User
+ - [ID: 901be943-f72a-45d0-b9d0-c2fa5faa3114] referrer_final User
+ - [ID: a7883c59-df7d-48ec-9336-c89d1e0fde23] referee_final User
+ - [ID: 39fb7896-9393-47e7-841d-149d62667736] referrer_final User
+ - [ID: 131bca2a-7d22-4486-8beb-a684ceb0e697] referee_final User
+ - [ID: b9330137-4b66-41d3-9964-92e31f14240b] referrer_final User
+ - [ID: b0096149-ee4c-4ea8-8c1a-7dc79aee1e89] referee_final User
+ - [ID: 28090cf6-e608-4350-abae-6002f6fc2f4b] master_ref_v1@mailinator.com
+ - [ID: adedf797-4f1c-4007-9a02-6122ba4d2665] jsp_ref_03@mailinator.com
+ - [ID: d166d498-8b9c-4f4e-804e-8bbd3d8afe7c] referrer_final User
+ - [ID: f716838f-d6d0-4582-9811-c6bae9147e0e] referee_final User
+ - [ID: 05e9964c-a669-4849-9dbd-06ec7e7920cb] Test Affiliate
+ - [ID: 55dcc9e5-ed9d-49b0-b45b-12f57aa1b2a0] referrer_v2 User
+ - [ID: 29bb983f-1bdf-463c-a654-1a5d8fca5785] referee_v2 User
+ - [ID: baed9f83-1827-48f2-be94-489d2036e3db] referrer_v2 User
+ - [ID: a3c6f317-4e02-4e1e-86a5-50a880529f7c] referee_v2 User
+ - [ID: b0e3c8ac-b81c-4e62-a657-5251bf52254d] referrer_v2 User
+ - [ID: 0d565e9c-ffdc-43bb-9326-e118a214a58a] referee_v2 User
+ - [ID: 1caa7bba-1835-4562-9714-1854a95676fd] qa01@jobspeakpro.test
+ - [ID: e13fad3b-5fb1-4c75-8471-3233a7bb1287] qa02@jobspeakpro.test
+ - [ID: b01c6862-081e-4672-a338-3db3c43d6fde] qa03@jobspeakpro.test
+ - [ID: 6db18c09-9c6c-4e0c-a398-25e1dba22f5c] qa04@jobspeakpro.test
+ - [ID: bd61dc37-f936-4106-bec4-4a9d7d3b71cd] qa05@jobspeakpro.test
+ - [ID: 3e0bc8f1-12b2-41e4-9607-9634f0c93c37] qa06@jobspeakpro.test
+ - [ID: c353ac6f-e914-42a5-a744-7962113a661d] qa07@jobspeakpro.test
+ - [ID: 51c886e2-3319-4067-ab6b-008562558a66] qa08@jobspeakpro.test
+ - [ID: 602d4ee7-346c-4d86-81e7-ca65f563049e] qa09@jobspeakpro.test
+ - [ID: 7a6f6789-8864-4b79-9bfb-3adcc5aeff2a] qa10@jobspeakpro.test
+ - [ID: c976be5c-bb5e-4192-b0f3-5d30a5b8097b] qa11@jobspeakpro.test
+ - [ID: 9fce4ef2-ff6e-44e1-b78f-988a7b71cbfc] qa12@jobspeakpro.test
+ - [ID: 64b165aa-b318-4efc-9d0f-684c41045c60] qa13@jobspeakpro.test
+ - [ID: 58cbadce-ccc6-4eac-b2a6-f2e077f40696] qa14@jobspeakpro.test
+ - [ID: 669a0e8f-164a-4e11-a03b-b82fbf975c6b] qa15@jobspeakpro.test
+ - [ID: 883e33eb-3837-405f-947d-01a9c3c89b90] qa16@jobspeakpro.test
+ - [ID: d76d3ae5-6400-436c-a889-5387f1f6ac22] qa17@jobspeakpro.test
+ - [ID: 693d1ab3-db7b-4381-8c91-db8df4796fee] qa18@jobspeakpro.test
+ - [ID: b8de28e1-69d0-4911-9fe5-be53dec425b0] qa19@jobspeakpro.test
+ - [ID: 666b5e1f-2d6c-420a-b3a1-94ca5207a204] qa20@jobspeakpro.test
+ - [ID: 801d558f-7357-4276-9952-1e5a1aaf3a6d] qa@jobspeakpro.test
+ - [ID: 3104f3cf-273c-42ba-bc50-b6d651f6b436] kosobek427@icloud.com
+ - [ID: 2be43497-ef86-46f9-8365-73e45b9b79b3] w4tr0g+b9e4a9a9ihak4@sharklasers.com
+ - [ID: d0604b85-ba5c-47aa-924b-42488b3a78b4] dnporrmt@sharklasers.com
+ - [ID: 3dfefcb9-117d-457f-aa2b-ac0531b79d28] lochsqmp@sharklasers.com
+ - [ID: fbdedce1-5aef-4643-bd4c-8b1d7a873699] test_actionlink_1770359414749@sharklasers.com
+ - [ID: 23b2ebc5-120c-48a3-9388-8e830d284386] w4ts66+5vlb002skzx0c@sharklasers.com
+ - [ID: ad398f2f-d169-48db-b0db-c07168774ac6] af8gd@virgilian.com
+ - [ID: 46e1afd0-a5ed-4619-8dd0-f4990f7e84c8] test_user_unique_99@example.com
+ - [ID: bb341272-adf3-4fc4-9714-66ff1125bd40] jsptest0206@sharklasers.com
+ - [ID: 34fb6a8c-4bb9-46ab-9b15-8787544e6c5e] fixtest0206@sharklasers.com
+ - [ID: f2fc0e91-ccc3-448c-a3c0-bc9a232b3e42] testref01@yopmail.com
+ - [ID: f3c29a07-329c-4dea-8640-7bc22aebbf0a] SmokeTest
+ - [ID: 783038dd-7d07-427d-b874-57d4a894b068] verifyfix0206@sharklasers.com
+ - [ID: a3357060-05d9-4d78-bfea-5b9b1deadc3c] test_202602061031@example.com
+ - [ID: 2bf6b383-ab6d-4749-b809-d820e849626a] ag_test_1739328400@example.com
+ - [ID: 73bc5282-b9af-40ac-819f-5d1bf20128bc] ag_e2e_1739832267@example.com
+ - [ID: f9cf0242-21c3-40c7-8c90-ab71e3a1bfbe] e2etest_user_1739800000@mailinator.com
+ - [ID: fbbe71a4-bdc5-46d8-9c4e-4610d14feb59] e2e_tester_1739800001@mailinator.com
+ - [ID: f3b5261e-6c24-4b12-b6d6-8a41e04c6966] e2e_tester_123456@example.com
+ - [ID: 9fced140-cd9d-456b-acf1-65a9691bc9c5] final_e2e_test_2026@example.com
+ - [ID: 90fe832d-c2eb-48ac-bd98-2063f08a0b8e] test_verify_feb6_2@example.com
+ - [ID: 34ad51cf-664b-437c-9b46-4c15a519ec9c] verify_final_99@example.com
+ - [ID: 9addc54f-8b4d-4a11-9242-3c49cd0aa906] testuser@jobspeakpro.com
+ - [ID: 71562562-2c60-4f33-ae0a-7c6a1891b796] testjsp202603@maildrop.cc
+ - [ID: b8289af5-cf7f-4d7b-8f4a-c46fdf3e4d03] spiky.beaver1364@maildrop.cc
+ - [ID: 3c82cbd4-8102-4eea-abff-336f6799ecbb] testref02@yopmail.com
+ - [ID: 9883677e-a3f7-4759-b9e3-ec2c1b466b26] testjsp202602@maildrop.cc
+ - [ID: e4d06c52-e1c0-45be-b7d0-9acce7e31f17] testref03_feb12@yopmail.com
+ - [ID: b953a693-c787-4834-989e-11af76e12296] TTS_Tester
+ - [ID: 459240c0-1c2e-425e-8222-11844a883c81] afftest2_feb12@yopmail.com
+ - [ID: e934a496-38f6-4bea-b104-5df73260db2e] afftest3_feb12@yopmail.com
+ - [ID: 2eb1a63c-b779-43d2-86df-a2dc24cfcb5c] jobspeakpro+u1_ref@gmail.com
+ - [ID: 1f3bad91-1449-461a-80ec-78a7cd932d4d] jobspeakpro+u2_referee@gmail.com
+ - [ID: f617ed11-1739-4500-9757-dd87aad24dfc] jobspeakpro+u3_affiliate@gmail.com
+ - [ID: 85588674-28b1-414a-817c-d1d01936f48a] jobspeakpro+u4_pro@gmail.com
+ - [ID: 103ed4de-1569-42f7-8769-7984179e6e3a] jobspeakpro+u5_mobile@gmail.com
+ - [ID: 7465b63b-aa98-47a7-ac6e-9f0a5175af41] jobspeakpro+u12_referee@gmail.com
+ - [ID: 2617dee2-5735-4e27-b549-222077e68b24] jobspeakpro+u13_affiliate@gmail.com
+ - [ID: d0c288d0-32ad-4cc5-8da3-a1039f89954b] jobspeakpro+u14_pro@gmail.com
+ - [ID: 0f36b80c-0c90-4afe-8698-704ec9926e1f] jobspeakpro+u15_mobile@gmail.com
+ - [ID: 454a447e-f7de-4adc-9faa-36dae6aaeb45] jobspeakpro+u11_ref@gmail.com
+ - [ID: 31560d28-87d0-4482-bdce-b488e80475c2] Test Affiliate
+ - [ID: f4240ae8-dc9e-4026-9176-bd6e8a728601] Test Affiliate
+ - [ID: 32c78937-21f9-48d8-beed-cb49162ab6a1] Mike
+ - [ID: a4c6fdd5-feb1-43e5-a4ca-6bc01f215ce2] referrer_ref_1321@test.com
+ - [ID: 057c1e17-aa14-41dd-a55e-d00c90accdf8] jobspeakpro+user21@gmail.com
+ - [ID: 773247b2-d5cb-4474-b934-19dc8a3cb6a7] jobspeakpro+user22@gmail.com
+ - [ID: 204baa68-0e38-4a15-9b96-32808d0a9106] testuser_9582@example.com
+ - [ID: 27b56972-84c0-45aa-96b2-b611b32a5251] testuser_8192@example.com
+ - [ID: d0430d72-4f0d-4182-ba06-e34d3d2e791b] testuser_1357@example.com
+ - [ID: 5db76d24-9717-40ed-8181-9fe55363dc45] test+local_987@test.com
+ - [ID: e25fcded-4b94-458c-9892-a5a2ab3c3674] referrer_aff_1321@test.com
+ - [ID: ce307776-df43-4ea8-ae1d-6c0565d438eb] Tester
+ - [ID: 6ddea258-f23c-4e82-beaa-3d812804b274] test_user_6@example.com
+ - [ID: e4c0922c-fa71-4c75-b1c5-b93d07247d4f] test_user_7@example.com
+ - [ID: 73240243-04c8-4c9a-9882-457e76cee904] applicant_ref_1321@test.com
+ - [ID: 60153423-1736-4ba3-aea7-c4fc1c1f4988] josjh@gmail.com
+ - [ID: e993c809-f35e-4996-bd23-64c5bf7748cf] referrer_ref_9701@test.com
+ - [ID: 670c2796-9ef5-41b3-84c4-1ae9da6d1e95] referrer_aff_9701@test.com
+ - [ID: 57697e40-9944-491d-b9b4-8eccc97192cc] test+2@example.com
+ - [ID: 6f6d0dd3-82b0-4320-bfe5-b5fe3a3c9949] applicant_ref_9701@test.com
+ - [ID: 6758c420-0bd1-493a-b4de-ee96d54effe3] verification@test.com
+ - [ID: 6bc81950-4b8d-4f06-aa9e-8b3977f582cc] applicant_aff_9701@test.com
+ - [ID: 0941a4ac-c9cd-49f4-817f-2b5a8ee64fca] referrer_ref_4944@test.com
+ - [ID: 2841a9f7-8e88-4662-94ed-e06d4de2dd54] referrer_aff_4944@test.com
+ - [ID: 1a1807e6-3a30-4d02-9c8b-ffebd0615bbb] referrer_ref_3211@test.com
+ - [ID: 43ef7fbf-31fc-4e1d-94e3-3dd9c76172d0] referrer_aff_3211@test.com
+ - [ID: e31370e6-bcd7-4155-8e62-1527e1641dbf] applicant_ref_3211@test.com
+ - [ID: 2c39e741-b52f-4666-ba7c-c06316e8154a] referrer_ref_7753@test.com
+ - [ID: 1f46c3c0-470f-4e3a-ab80-1fec700fa480] referrer_aff_7753@test.com
+ - [ID: 4d713f99-8671-436a-9d9b-9292e2b1660b] Applicant Ref
+ - [ID: db96fda3-e66f-43ef-b5e3-119f1e3866f9] Applicant Aff
+ - [ID: 357af81d-c410-46b4-98d5-5221148b9fcb] Applicant Aff
+ - [ID: d2a40d1a-edb2-4b3d-8a21-43b6011979f3] referrer_ref_3903@test.com
+ - [ID: 4aa0e50b-5edd-42d0-b474-d1fcdfbbd0c5] referrer_aff_3903@test.com
+ - [ID: 114c1b3c-9423-4a2e-815a-5e67056d4099] Applicant Ref
+ - [ID: 64b0eb9f-d5d1-479b-94b2-be076ce542eb] Optional User
+ - [ID: bc3fdd9f-5f3c-4131-b309-f4f64c6ba409] referred_user_1771213496705@example.com
+ - [ID: 4b0cb6ec-526e-4c8d-b582-5190c02f5307] Test Affiliate
+ - [ID: fdbae406-e9ab-4c1e-98aa-36ab264d4d8d] antigravity_admin@test.com
