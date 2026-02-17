@@ -63,7 +63,6 @@ router.post('/support/contact', async (req, res) => {
             const emailResult = await resend.emails.send({
                 from: `JobSpeakPro Support <${fromEmail}>`,
                 to: adminEmail,
-                cc: 'jobspeakpro@gmail.com',
                 subject: `New Contact: ${subject || 'No Subject'}`,
                 reply_to: email,
                 html: `
