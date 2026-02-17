@@ -56,7 +56,8 @@ router.post('/support/contact', async (req, res) => {
 
         // 2. Send Email via Resend
         try {
-            const adminEmail = process.env.ADMIN_EMAIL || 'jobspeakpro@gmail.com';
+            // HARDCODED to ensure no env var overrides it
+            const adminEmail = 'jobspeakpro@gmail.com';
             // Use VERIFIED domain to allow sending to any email
             const fromEmail = 'support@jobspeakpro.site';
 
